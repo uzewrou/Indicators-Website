@@ -129,7 +129,6 @@ Position date runs one trading day behind the publish date. Missing days are hol
 Data refreshes every 5 minutes, or immediately via Refresh. Nothing is stored locally.
 Source: NSE India. Internal research use only, not investment advice.
 """)
-    st.caption("Built for Ashika Group · data © NSE India")
 
 with t1:
     date, df = load_mwpl()
