@@ -122,32 +122,29 @@ with t2:
                            f"participant_oi_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_oi")
 
         if st.toggle("Charts", value=True, key="ch_oi"):
-            long_cols = [f"{p} Long %" for p in PARTS]
-            m = oi[["Dates"] + long_cols].melt("Dates", var_name="Participant", value_name="Long %")
-            m["Participant"] = m["Participant"].str.replace(" Long %", "", regex=False)
-            m["Net %"] = m["Long %"] * 2 - 100
             order = list(oi["Dates"])[::-1]
-            colour = alt.Color("Participant:N", scale=alt.Scale(
-                domain=PARTS, range=["#3d8bfd", "#f59e0b", "#26a65b", "#c08ae8"]))
+            src = oi.iloc[::-1].reset_index(drop=True)
             xax = alt.X("Dates:O", sort=order, title=None,
                         axis=alt.Axis(labelAngle=-45, labelOverlap=True))
-
-            st.subheader("Long-side positioning")
-            st.caption("50% = neutral · trading days only")
-            st.altair_chart(
-                (alt.Chart(m).mark_line(point=True, strokeWidth=2).encode(
-                    x=xax, y=alt.Y("Long %:Q", scale=alt.Scale(zero=False),
-                                   title="Long % of futures OI"),
-                    color=colour, tooltip=["Dates", "Participant", "Long %"]) +
-                 alt.Chart(pd.DataFrame({"y": [50]})).mark_rule(
-                     strokeDash=[4, 4], opacity=.4).encode(y="y:Q")
-                 ).properties(height=400).interactive(), use_container_width=True)
-
-            st.subheader("Net positioning")
-            st.caption("Long % − Short % · above zero = net long")
-            st.altair_chart(
-                alt.Chart(m).mark_bar().encode(
-                    x=xax, y=alt.Y("Net %:Q", title="Net long − short (%)"),
-                    color=colour, tooltip=["Dates", "Participant", "Net %"],
-                    row=alt.Row("Participant:N", sort=PARTS, title=None)
-                ).properties(height=95).interactive(), use_container_width=True)
+            cols = st.columns(2)
+            for i, p in enumerate(PARTS):
+                f = pd.DataFrame({"Dates": src["Dates"]})
+                for side in ("Long", "Short"):
+                    f[f"{side}|Actual"] = src[f"{p} {side} %"]
+                    f[f"{side}|21D MA"] = src[f"{p} {side} %"].rolling(21, min_periods=1).mean().round(2)
+                m = f.melt("Dates", var_name="k", value_name="Value").dropna()
+                m[["Side", "Type"]] = m["k"].str.split("|", expand=True)
+                with cols[i % 2]:
+                    st.subheader(p)
+                    st.altair_chart(
+                        alt.Chart(m).mark_line().encode(
+                            x=xax,
+                            y=alt.Y("Value:Q", scale=alt.Scale(zero=False), title="% of futures OI"),
+                            color=alt.Color("Side:N", scale=alt.Scale(
+                                domain=["Long", "Short"], range=["#26a65b", "#e05260"])),
+                            strokeDash=alt.StrokeDash("Type:N", scale=alt.Scale(
+                                domain=["Actual", "21D MA"], range=[[1, 0], [5, 3]]), title=None),
+                            opacity=alt.condition(alt.datum.Type == "Actual",
+                                                  alt.value(1), alt.value(.55)),
+                            tooltip=["Dates", "Side", "Type", "Value"],
+                        ).properties(height=300).interactive(), use_container_width=True)
