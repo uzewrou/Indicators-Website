@@ -91,24 +91,24 @@ with t1:
         st.error("No MWPL file found in the last 10 days.")
     else:
         st.caption(f"Position date: {date:%d %b %Y}")
+
+        if st.toggle("Chart", value=True, key="ch_mwpl"):
+            sym = df.columns[1]
+            top = df[[sym, "Sum", "Count", "Average"]].dropna().nlargest(20, "Sum")
+            st.subheader("Top 20 by total client position")
+            st.altair_chart(
+                alt.Chart(top).mark_bar().encode(
+                    y=alt.Y(f"{sym}:N", sort="-x", title=None),
+                    x=alt.X("Sum:Q", title="Total % of MWPL"),
+                    color=alt.Color("Count:Q", scale=alt.Scale(scheme="tealblues"),
+                                    title="Clients"),
+                    tooltip=[sym, "Sum", "Count", "Average"],
+                ).properties(height=480), use_container_width=True)
+
         st.dataframe(df, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(df) + 40))
         st.download_button("CSV", xl(df, "MWPL"),
                            f"mwpl_cli_{date:%d%m%Y}.csv", "text/csv", key="dl_mwpl")
-
-        if st.toggle("Charts", value=True, key="ch_mwpl"):
-            sym = df.columns[1]
-            sc = df[[sym, "Count", "Average", "Sum"]].dropna()
-            st.subheader("Concentration map")
-            st.caption("Right = crowded trade · Top = whale positions")
-            st.altair_chart(
-                alt.Chart(sc).mark_circle(size=90, opacity=.65).encode(
-                    x=alt.X("Count:Q", title="Number of clients ≥3%"),
-                    y=alt.Y("Average:Q", title="Average position % of MWPL"),
-                    size=alt.Size("Sum:Q", title="Total %", scale=alt.Scale(range=[40, 600])),
-                    color=alt.Color("Sum:Q", scale=alt.Scale(scheme="viridis"), legend=None),
-                    tooltip=[sym, "Count", "Average", "Sum"],
-                ).properties(height=420).interactive(), use_container_width=True)
 
 with t2:
     oi = load_oi()
@@ -116,10 +116,7 @@ with t2:
         st.error("No participant OI files found.")
     else:
         st.caption(f"{len(oi)} trading days · latest {oi['Dates'].iloc[0]}")
-        st.dataframe(oi, use_container_width=True, hide_index=True,
-                     height=min(1200, 35 * len(oi) + 40))
-        st.download_button("CSV", xl(oi, "Participant OI"),
-                           f"participant_oi_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_oi")
+
         if st.toggle("Charts", value=True, key="ch_oi"):
             src = oi.iloc[::-1].reset_index(drop=True)
             order = list(src["Dates"])
@@ -148,3 +145,8 @@ with t2:
                              y="Avg:Q", color=alt.Color("Side:N", scale=shade),
                              tooltip=["Side", "Avg"])
                          ).properties(height=320).interactive(), use_container_width=True)
+
+        st.dataframe(oi, use_container_width=True, hide_index=True,
+                     height=min(1200, 35 * len(oi) + 40))
+        st.download_button("CSV", xl(oi, "Participant OI"),
+                           f"participant_oi_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_oi")
