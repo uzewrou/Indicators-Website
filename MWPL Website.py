@@ -121,29 +121,30 @@ with t2:
         st.download_button("CSV", xl(oi, "Participant OI"),
                            f"participant_oi_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_oi")
         if st.toggle("Charts", value=True, key="ch_oi"):
-            order = list(oi["Dates"])[::-1]
             src = oi.iloc[::-1].reset_index(drop=True)
+            order = list(src["Dates"])
             xax = alt.X("Dates:O", sort=order, title=None,
                         axis=alt.Axis(labelAngle=-45, labelOverlap=True))
+            shade = alt.Scale(domain=["Long", "Short"], range=["#26a65b", "#e05260"])
             cols = st.columns(2)
             for i, p in enumerate(PARTS):
-                f = pd.DataFrame({"Dates": src["Dates"]})
-                for side in ("Long", "Short"):
-                    f[f"{side}|Actual"] = src[f"{p} {side} %"]
-                    f[f"{side}|21D MA"] = src[f"{p} {side} %"].rolling(21, min_periods=1).mean().round(2)
-                m = f.melt("Dates", var_name="k", value_name="Value").dropna()
-                m[["Side", "Type"]] = m["k"].str.split("|", expand=True)
+                m = src[["Dates", f"{p} Long %", f"{p} Short %"]].melt(
+                    "Dates", var_name="Side", value_name="Value")
+                m["Side"] = m["Side"].str.extract(r"(Long|Short)")
+                avg = m.groupby("Side")["Value"].mean().round(2)
+                a = pd.DataFrame({"Side": avg.index, "Avg": avg.values})
                 with cols[i % 2]:
                     st.subheader(p)
+                    st.caption(f"Avg long {avg['Long']}% · avg short {avg['Short']}%")
                     st.altair_chart(
-                        alt.Chart(m).mark_line().encode(
+                        (alt.Chart(m).mark_line(strokeWidth=2).encode(
                             x=xax,
                             y=alt.Y("Value:Q", scale=alt.Scale(zero=False), title="% of futures OI"),
-                            color=alt.Color("Side:N", scale=alt.Scale(
-                                domain=["Long", "Short"], range=["#26a65b", "#e05260"])),
-                            strokeDash=alt.StrokeDash("Type:N", scale=alt.Scale(
-                                domain=["Actual", "21D MA"], range=[[1, 0], [5, 3]]), title=None),
-                            opacity=alt.condition(alt.datum.Type == "Actual",
-                                                  alt.value(1), alt.value(.55)),
-                            tooltip=["Dates", "Side", "Type", "Value"],
-                        ).properties(height=300).interactive(), use_container_width=True)
+                            color=alt.Color("Side:N", scale=shade)) +
+                         alt.Chart(m).mark_point(size=55, filled=True).encode(
+                             x=xax, y="Value:Q", color=alt.Color("Side:N", scale=shade),
+                             tooltip=["Dates", "Side", "Value"]) +
+                         alt.Chart(a).mark_rule(strokeDash=[5, 3], opacity=.6).encode(
+                             y="Avg:Q", color=alt.Color("Side:N", scale=shade),
+                             tooltip=["Side", "Avg"])
+                         ).properties(height=320).interactive(), use_container_width=True)
