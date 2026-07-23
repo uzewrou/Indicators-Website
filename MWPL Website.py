@@ -83,16 +83,22 @@ def xl(df, sheet):
 st.markdown("""
 <style>
   div[data-testid="stButton"] button {padding:2px 12px; font-size:12px; min-height:0;}
+  div[data-testid="stButton"] {display:flex; justify-content:flex-end;}
+  h1 {padding-top:0 !important; margin-top:0 !important;}
 </style>
 """, unsafe_allow_html=True)
 
-h1, h2 = st.columns([5, 1])
-with h1:
+a1, a2 = st.columns([5, 1], vertical_alignment="center")
+with a1:
     st.title("NSE Derivatives Monitor")
-    st.caption("MWPL client positions · participant-wise open interest · live from NSE")
-with h2:
+with a2:
     if os.path.exists(LOGO):
         st.image(LOGO, width=130)
+
+b1, b2 = st.columns([5, 1], vertical_alignment="center")
+with b1:
+    st.caption("MWPL client positions · participant-wise open interest · live from NSE")
+with b2:
     if st.button("Refresh"):
         load_mwpl.clear()
         load_oi.clear()
