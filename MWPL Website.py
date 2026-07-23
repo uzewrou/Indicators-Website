@@ -80,20 +80,22 @@ def xl(df, sheet):
     return df.to_csv(index=False).encode()
 
 
-if os.path.exists(LOGO):
-    st.logo(LOGO, size="large")
+st.markdown("""
+<style>
+  div[data-testid="stButton"] button {padding:2px 12px; font-size:12px; min-height:0;}
+</style>
+""", unsafe_allow_html=True)
 
-h1, h2 = st.columns([1, 8])
+h1, h2 = st.columns([5, 1])
 with h1:
-    if os.path.exists(LOGO):
-        st.image(LOGO, width=110)
-with h2:
     st.title("NSE Derivatives Monitor")
     st.caption("MWPL client positions · participant-wise open interest · live from NSE")
-
-if st.button("Refresh"):
-    load_mwpl.clear()
-    load_oi.clear()
+with h2:
+    if os.path.exists(LOGO):
+        st.image(LOGO, width=130)
+    if st.button("Refresh"):
+        load_mwpl.clear()
+        load_oi.clear()
 
 t0, t1, t2 = st.tabs(["About", "MWPL Client Positions", "Participant OI (1M)"])
 
@@ -129,19 +131,16 @@ with t1:
         st.error("No MWPL file found in the last 10 days.")
     else:
         st.caption(f"Position date: {date:%d %b %Y}")
-
-        if st.toggle("Chart", value=True, key="ch_mwpl"):
-            sym = df.columns[1]
-            top = df[[sym, "Sum", "Count", "Average"]].dropna().nlargest(20, "Sum")
-            st.subheader("Top 20 by total client position")
-            st.altair_chart(
-                alt.Chart(top).mark_bar().encode(
-                    y=alt.Y(f"{sym}:N", sort="-x", title=None),
-                    x=alt.X("Sum:Q", title="Total % of MWPL"),
-                    color=alt.Color("Count:Q", scale=alt.Scale(scheme="tealblues"),
-                                    title="Clients"),
-                    tooltip=[sym, "Sum", "Count", "Average"],
-                ).properties(height=480), use_container_width=True)
+        sym = df.columns[1]
+        top = df[[sym, "Sum", "Count", "Average"]].dropna().nlargest(20, "Sum")
+        st.subheader("Top 20 by total client position")
+        st.altair_chart(
+            alt.Chart(top).mark_bar().encode(
+                y=alt.Y(f"{sym}:N", sort="-x", title=None),
+                x=alt.X("Sum:Q", title="Total % of MWPL"),
+                color=alt.Color("Count:Q", scale=alt.Scale(scheme="tealblues"), title="Clients"),
+                tooltip=[sym, "Sum", "Count", "Average"],
+            ).properties(height=480), use_container_width=True)
 
         st.dataframe(df, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(df) + 40))
@@ -154,35 +153,33 @@ with t2:
         st.error("No participant OI files found.")
     else:
         st.caption(f"{len(oi)} trading days · latest {oi['Dates'].iloc[0]}")
-
-        if st.toggle("Charts", value=True, key="ch_oi"):
-            src = oi.iloc[::-1].reset_index(drop=True)
-            order = list(src["Dates"])
-            xax = alt.X("Dates:O", sort=order, title=None,
-                        axis=alt.Axis(labelAngle=-45, labelOverlap=True))
-            shade = alt.Scale(domain=["Long", "Short"], range=["#26a65b", "#e05260"])
-            cols = st.columns(2)
-            for i, p in enumerate(PARTS):
-                m = src[["Dates", f"{p} Long %", f"{p} Short %"]].melt(
-                    "Dates", var_name="Side", value_name="Value")
-                m["Side"] = m["Side"].str.extract(r"(Long|Short)")
-                avg = m.groupby("Side")["Value"].mean().round(2)
-                a = pd.DataFrame({"Side": avg.index, "Avg": avg.values})
-                with cols[i % 2]:
-                    st.subheader(p)
-                    st.caption(f"Avg long {avg['Long']}% · avg short {avg['Short']}%")
-                    st.altair_chart(
-                        (alt.Chart(m).mark_line(strokeWidth=2).encode(
-                            x=xax,
-                            y=alt.Y("Value:Q", scale=alt.Scale(zero=False), title="% of futures OI"),
-                            color=alt.Color("Side:N", scale=shade)) +
-                         alt.Chart(m).mark_point(size=55, filled=True).encode(
-                             x=xax, y="Value:Q", color=alt.Color("Side:N", scale=shade),
-                             tooltip=["Dates", "Side", "Value"]) +
-                         alt.Chart(a).mark_rule(strokeDash=[5, 3], opacity=.6).encode(
-                             y="Avg:Q", color=alt.Color("Side:N", scale=shade),
-                             tooltip=["Side", "Avg"])
-                         ).properties(height=320).interactive(), use_container_width=True)
+        src = oi.iloc[::-1].reset_index(drop=True)
+        order = list(src["Dates"])
+        xax = alt.X("Dates:O", sort=order, title=None,
+                    axis=alt.Axis(labelAngle=-45, labelOverlap=True))
+        shade = alt.Scale(domain=["Long", "Short"], range=["#26a65b", "#e05260"])
+        cols = st.columns(2)
+        for i, p in enumerate(PARTS):
+            m = src[["Dates", f"{p} Long %", f"{p} Short %"]].melt(
+                "Dates", var_name="Side", value_name="Value")
+            m["Side"] = m["Side"].str.extract(r"(Long|Short)")
+            avg = m.groupby("Side")["Value"].mean().round(2)
+            a = pd.DataFrame({"Side": avg.index, "Avg": avg.values})
+            with cols[i % 2]:
+                st.subheader(p)
+                st.caption(f"Avg long {avg['Long']}% · avg short {avg['Short']}%")
+                st.altair_chart(
+                    (alt.Chart(m).mark_line(strokeWidth=2).encode(
+                        x=xax,
+                        y=alt.Y("Value:Q", scale=alt.Scale(zero=False), title="% of futures OI"),
+                        color=alt.Color("Side:N", scale=shade)) +
+                     alt.Chart(m).mark_point(size=55, filled=True).encode(
+                         x=xax, y="Value:Q", color=alt.Color("Side:N", scale=shade),
+                         tooltip=["Dates", "Side", "Value"]) +
+                     alt.Chart(a).mark_rule(strokeDash=[5, 3], opacity=.6).encode(
+                         y="Avg:Q", color=alt.Color("Side:N", scale=shade),
+                         tooltip=["Side", "Avg"])
+                     ).properties(height=320).interactive(), use_container_width=True)
 
         st.dataframe(oi, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(oi) + 40))
