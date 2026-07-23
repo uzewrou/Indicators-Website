@@ -76,9 +76,7 @@ def load_oi(days=30):
 
 
 def xl(df, sheet):
-    buf = io.BytesIO()
-    df.to_excel(buf, index=False, sheet_name=sheet)
-    return buf.getvalue()
+    return df.to_csv(index=False).encode()
 
 
 if st.button("Refresh"):
@@ -95,8 +93,8 @@ with t1:
         st.caption(f"Position date: {date:%d %b %Y}")
         st.dataframe(df, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(df) + 40))
-        st.download_button("Excel", xl(df, "MWPL"),
-                           f"mwpl_cli_{date:%d%m%Y}.xlsx", key="dl_mwpl")
+        st.download_button("CSV", xl(df, "MWPL"),
+                           f"mwpl_cli_{date:%d%m%Y}.csv", "text/csv", key="dl_mwpl")
 
 with t2:
     oi = load_oi()
@@ -106,5 +104,5 @@ with t2:
         st.caption(f"{len(oi)} trading days · latest {oi['Dates'].iloc[0]}")
         st.dataframe(oi, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(oi) + 40))
-        st.download_button("Excel", xl(oi, "Participant OI"),
-                           f"participant_oi_{dt.date.today():%d%m%Y}.xlsx", key="dl_oi")
+        st.download_button("CSV", xl(oi, "Participant OI"),
+                           f"participant_oi_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_oi")
