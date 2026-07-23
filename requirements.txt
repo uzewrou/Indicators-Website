@@ -2,3 +2,7 @@ streamlit
 pandas
 requests
 xlrd
+openpyxlstreamlit
+pandas
+requests
+xlrd
