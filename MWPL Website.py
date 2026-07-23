@@ -7,6 +7,13 @@ ARCH = "https://nsearchives.nseindia.com/content/nsccl"
 PARTS = ["FII", "Pro", "Client", "DII"]
 
 
+def ensure(mod):
+    try:
+        __import__(mod)
+    except ImportError:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", mod], check=True)
+
+
 @st.cache_resource
 def session():
     s = requests.Session()
@@ -31,11 +38,8 @@ def load_mwpl():
     for _ in range(10):
         c = get(f"{ARCH}/mwpl_cli_{d:%d%m%Y}.xls")
         if c and len(c) > 500:
-            try:
-                df = pd.read_excel(io.BytesIO(c), skiprows=1)
-            except ImportError:
-                subprocess.run([sys.executable, "-m", "pip", "install", "-q", "xlrd"], check=True)
-                df = pd.read_excel(io.BytesIO(c), skiprows=1)
+            ensure("xlrd")
+            df = pd.read_excel(io.BytesIO(c), skiprows=1)
             cli = df.columns[2:]
             df[cli] = df[cli].apply(pd.to_numeric, errors="coerce")
             df["Count"] = df[cli].count(axis=1)
@@ -49,8 +53,7 @@ def load_mwpl():
 @st.cache_data(ttl=300, show_spinner=False)
 def load_oi(days=30):
     today = dt.date.today()
-    dates = [today - dt.timedelta(days=i) for i in range(days + 1)]
-    dates = [d for d in dates if d.weekday() < 5]
+    dates = [d for d in (today - dt.timedelta(days=i) for i in range(days + 1)) if d.weekday() < 5]
 
     def one(d):
         c = get(f"{ARCH}/fao_participant_oi_{d:%d%m%Y}.csv")
@@ -81,6 +84,7 @@ def load_oi(days=30):
 
 
 def xl(df, sheet):
+    ensure("openpyxl")
     buf = io.BytesIO()
     df.to_excel(buf, index=False, sheet_name=sheet)
     return buf.getvalue()
