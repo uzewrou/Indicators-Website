@@ -120,7 +120,6 @@ with t2:
                      height=min(1200, 35 * len(oi) + 40))
         st.download_button("CSV", xl(oi, "Participant OI"),
                            f"participant_oi_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_oi")
-
         if st.toggle("Charts", value=True, key="ch_oi"):
             order = list(oi["Dates"])[::-1]
             src = oi.iloc[::-1].reset_index(drop=True)
