@@ -1,17 +1,10 @@
-import io, sys, subprocess, datetime as dt, requests, pandas as pd, streamlit as st
+import io, datetime as dt, requests, pandas as pd, streamlit as st
 from concurrent.futures import ThreadPoolExecutor
 
 st.set_page_config(page_title="NSE Derivatives", layout="wide")
 REF = "https://www.nseindia.com/all-reports-derivatives"
 ARCH = "https://nsearchives.nseindia.com/content/nsccl"
 PARTS = ["FII", "Pro", "Client", "DII"]
-
-
-def ensure(mod):
-    try:
-        __import__(mod)
-    except ImportError:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", mod], check=True)
 
 
 @st.cache_resource
@@ -38,7 +31,6 @@ def load_mwpl():
     for _ in range(10):
         c = get(f"{ARCH}/mwpl_cli_{d:%d%m%Y}.xls")
         if c and len(c) > 500:
-            ensure("xlrd")
             df = pd.read_excel(io.BytesIO(c), skiprows=1)
             cli = df.columns[2:]
             df[cli] = df[cli].apply(pd.to_numeric, errors="coerce")
@@ -84,7 +76,6 @@ def load_oi(days=30):
 
 
 def xl(df, sheet):
-    ensure("openpyxl")
     buf = io.BytesIO()
     df.to_excel(buf, index=False, sheet_name=sheet)
     return buf.getvalue()
