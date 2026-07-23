@@ -95,7 +95,33 @@ if st.button("Refresh"):
     load_mwpl.clear()
     load_oi.clear()
 
-t1, t2, t3 = st.tabs(["MWPL Client Positions", "Participant OI (1M)", "About"])
+t0, t1, t2 = st.tabs(["About", "MWPL Client Positions", "Participant OI (1M)"])
+
+with t0:
+    st.markdown("""
+**MWPL Client Positions**  
+NSE's "F&O Clients Position % greater than or equal to 3% of Stock MWPL" file.
+Each row is an underlying stock; each Client column is one client holding at least
+3% of that stock's market-wide position limit.
+
+- **Count**: how many clients are above the 3% threshold
+- **Sum**: their combined position as % of MWPL
+- **Average**: mean position size per reporting client
+
+High Count with low Average is a crowded trade. Low Count with high Average is
+concentration in one or two hands.
+
+**Participant OI**  
+NSE's "Participant wise Open Interest" file for the last ~21 trading days.
+Long % and Short % are each participant's share of index futures open interest,
+computed as long / (long + short). Dashed lines are the average across the window.
+
+**Notes**  
+Position date runs one trading day behind the publish date. Missing days are holidays.
+Data refreshes every 5 minutes, or immediately via Refresh. Nothing is stored locally.
+Source: NSE India. Internal research use only, not investment advice.
+""")
+    st.caption("Built for Ashika Group · data © NSE India")
 
 with t1:
     date, df = load_mwpl()
@@ -162,37 +188,3 @@ with t2:
                      height=min(1200, 35 * len(oi) + 40))
         st.download_button("CSV", xl(oi, "Participant OI"),
                            f"participant_oi_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_oi")
-
-with t3:
-    st.subheader("About")
-    st.markdown("""
-**What this is**  
-A live view of two daily NSE derivatives reports, pulled straight from NSE's archive
-servers each time the cache expires. Nothing is stored — every figure is fetched fresh.
-
-**MWPL Client Positions**  
-NSE's *"F&O — Clients Position % greater than or equal to 3% of Stock MWPL"* file.
-Each row is an underlying stock; each `Client N` column is one client holding at least
-3% of that stock's market-wide position limit. Added columns:
-
-- **Count** — how many clients are above the 3% threshold
-- **Sum** — their combined position as % of MWPL
-- **Average** — mean position size per reporting client
-
-High Count with low Average is a crowded trade. Low Count with high Average is
-concentration in one or two hands.
-
-**Participant OI**  
-NSE's *"Participant wise Open Interest"* file for the last ~21 trading days.
-Long % and Short % are each participant's share of **index futures** open interest,
-computed as long ÷ (long + short). Total is the combined contract count.
-Dashed lines on the charts are the average across the window shown.
-
-**Notes**  
-- The position date is one trading day behind the publish date — NSE posts a file
-  covering the prior session.
-- Missing days are holidays; the app skips anything that 404s.
-- Data refreshes every 5 minutes, or immediately via the Refresh button.
-- Source: NSE India. For internal research use only; not investment advice.
-""")
-    st.caption("Built for Ashika Group · data © NSE India")
