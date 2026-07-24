@@ -404,7 +404,7 @@ with t3:
                            f"PIT_{seg}_{from_d:%d%m%Y}_{to_d:%d%m%Y}.csv",
                            "text/csv", key="dl_pit_c")
 
-        s1, s2, s3 = st.tabs(["By company", "All rows", "Filings"])
+        s1, s2 = st.tabs(["By company", "All rows"])
 
         with s1:
             work = pit_df.copy()
@@ -447,5 +447,3 @@ with t3:
         flat = view_cols(pit_df, keep_symbol=True)
         s2.dataframe(flat, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(flat) + 40))
-        s3.dataframe(inf_df, use_container_width=True, hide_index=True,
-                     height=min(1200, 35 * len(inf_df) + 40))
