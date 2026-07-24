@@ -35,6 +35,19 @@ HEAD = [("Symbol", None), ("Company", None), ("Broadcast", None),
         ("Regulation", None), ("Submission", None)] + GROUPS
 FLAT = [t if s is None else f"{t} - {s}" for t, s in HEAD]
 
+# columns hidden in the on-screen tables (still present in the Excel/CSV exports)
+PIT_HIDE = {"Sr. No.", "Category of person", "CIN / DIN",
+            "Description of type of instrument (applicable in case of other is selected)"}
+PIT_FRONT = ["Name of the person", "Type of instrument"]
+PIT_VIEW = (["Broadcast", "Regulation", "Submission"] + PIT_FRONT +
+            [c for c in FLAT if c not in PIT_HIDE and
+             c not in PIT_FRONT + ["Symbol", "Company", "Broadcast", "Regulation", "Submission"]])
+
+
+def view_cols(df, keep_symbol=False):
+    cols = (["Symbol", "Company"] if keep_symbol else []) + PIT_VIEW
+    return df[[c for c in cols if c in df.columns]]
+
 
 @st.cache_resource
 def session():
@@ -347,7 +360,7 @@ with t3:
     else:
         back = {"1D": 0, "1W": 7, "1M": 30}[rng]
         from_d, to_d = today - dt.timedelta(days=back), today
-        c3.caption(f"{from_d:%d %b} → {to_d:%d %b %Y}")
+        c3.caption(f"{from_d:%d %b} \u2192 {to_d:%d %b %Y}")
 
     with st.spinner("Fetching filings from NSE..."):
         inf_df, pit_df, failed = load_pit(from_d, to_d, seg)
@@ -357,10 +370,11 @@ with t3:
     elif inf_df.empty:
         st.warning("No filings in that range.")
     else:
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns([1, 1, 1, 2], vertical_alignment="bottom")
         m1.metric("Filings", len(inf_df))
         m2.metric("Disclosure rows", len(pit_df))
         m3.metric("Failed", len(failed))
+        show_chart = m4.toggle("Show chart", value=True, key="pit_chart")
 
         buy = pit_df["Securities acquired / disposed - Transaction type"].astype(str)
         val = pd.to_numeric(
@@ -369,7 +383,7 @@ with t3:
         agg = (pd.DataFrame({"Symbol": pit_df["Symbol"], "Side": buy, "Value": val})
                .query("Side in ['Buy', 'Sell']")
                .groupby(["Symbol", "Side"], as_index=False)["Value"].sum())
-        if not agg.empty:
+        if show_chart and not agg.empty:
             st.subheader("Top 20 by disclosed value")
             top = (agg.groupby("Symbol")["Value"].sum().nlargest(20).index)
             st.altair_chart(
@@ -390,7 +404,7 @@ with t3:
                            f"PIT_{seg}_{from_d:%d%m%Y}_{to_d:%d%m%Y}.csv",
                            "text/csv", key="dl_pit_c")
 
-        s1, s2, s3, s4 = st.tabs(["By company", "All rows", "Filings", "Failed"])
+        s1, s2, s3 = st.tabs(["By company", "All rows", "Filings"])
 
         with s1:
             work = pit_df.copy()
@@ -403,24 +417,35 @@ with t3:
                             Sell=("_val", lambda x: x[work.loc[x.index, "_side"] == "Sell"].sum())))
             summary["Net"] = summary["Buy"] - summary["Sell"]
             summary = summary.sort_values("Rows", ascending=False).reset_index(drop=True)
-            st.caption(f"{len(summary)} companies · click a name to expand")
-            for rec in summary.itertuples(index=False):
-                label = (f"{rec.Symbol} — {rec.Company}  ·  {rec.Rows} row"
-                         f"{'s' if rec.Rows != 1 else ''} across {rec.Filings} filing"
-                         f"{'s' if rec.Filings != 1 else ''}  ·  net ₹{rec.Net:,.0f}")
-                with st.expander(label):
-                    sub = pit_df[pit_df["Symbol"] == rec.Symbol].drop(
-                        columns=["Symbol", "Company"])
-                    sub = sub.dropna(axis=1, how="all")
-                    st.dataframe(sub, use_container_width=True, hide_index=True,
-                                 height=min(600, 35 * len(sub) + 40))
 
-        s2.dataframe(pit_df, use_container_width=True, hide_index=True,
-                     height=min(1200, 35 * len(pit_df) + 40))
+            st.caption(f"{len(summary)} companies \u00b7 click a row to open it below")
+            picked = None
+            try:
+                sel = st.dataframe(summary, use_container_width=True, hide_index=True,
+                                   on_select="rerun", selection_mode="single-row",
+                                   key="pit_pick", height=min(600, 35 * len(summary) + 40))
+                if sel.selection.rows:
+                    picked = summary.iloc[sel.selection.rows[0]]
+            except TypeError:
+                st.dataframe(summary, use_container_width=True, hide_index=True)
+                sym = st.selectbox("Open company", ["-"] + list(summary["Symbol"]),
+                                   key="pit_pick_fb")
+                if sym != "-":
+                    picked = summary[summary["Symbol"] == sym].iloc[0]
+
+            if picked is not None:
+                st.divider()
+                st.subheader(f"{picked.Symbol} \u2014 {picked.Company}")
+                st.caption(f"{picked.Rows} disclosure rows across {picked.Filings} filing"
+                           f"{'s' if picked.Filings != 1 else ''} \u00b7 "
+                           f"buy \u20b9{picked.Buy:,.0f} \u00b7 sell \u20b9{picked.Sell:,.0f} \u00b7 "
+                           f"net \u20b9{picked.Net:,.0f}")
+                sub = view_cols(pit_df[pit_df["Symbol"] == picked.Symbol])
+                st.dataframe(sub, use_container_width=True, hide_index=True,
+                             height=min(1200, 35 * len(sub) + 45))
+
+        flat = view_cols(pit_df, keep_symbol=True)
+        s2.dataframe(flat, use_container_width=True, hide_index=True,
+                     height=min(1200, 35 * len(flat) + 40))
         s3.dataframe(inf_df, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(inf_df) + 40))
-        if failed:
-            s4.dataframe(pd.DataFrame(failed, columns=["Symbol", "Error"]),
-                         use_container_width=True, hide_index=True)
-        else:
-            s4.caption("None.")
