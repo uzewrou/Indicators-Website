@@ -1,5 +1,8 @@
 streamlit
-pandas
 requests
-xlrd
+pandas
+altair
+lxml
 openpyxl
+xlrd
+html5lib
