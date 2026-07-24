@@ -390,13 +390,37 @@ with t3:
                            f"PIT_{seg}_{from_d:%d%m%Y}_{to_d:%d%m%Y}.csv",
                            "text/csv", key="dl_pit_c")
 
-        s1, s2, s3 = st.tabs(["Disclosures", "Filings", "Failed"])
-        s1.dataframe(pit_df, use_container_width=True, hide_index=True,
+        s1, s2, s3, s4 = st.tabs(["By company", "All rows", "Filings", "Failed"])
+
+        with s1:
+            work = pit_df.copy()
+            work["_val"] = val
+            work["_side"] = buy
+            summary = (work.groupby(["Symbol", "Company"], as_index=False)
+                       .agg(Rows=("Symbol", "size"),
+                            Filings=("Broadcast", "nunique"),
+                            Buy=("_val", lambda x: x[work.loc[x.index, "_side"] == "Buy"].sum()),
+                            Sell=("_val", lambda x: x[work.loc[x.index, "_side"] == "Sell"].sum())))
+            summary["Net"] = summary["Buy"] - summary["Sell"]
+            summary = summary.sort_values("Rows", ascending=False).reset_index(drop=True)
+            st.caption(f"{len(summary)} companies · click a name to expand")
+            for rec in summary.itertuples(index=False):
+                label = (f"{rec.Symbol} — {rec.Company}  ·  {rec.Rows} row"
+                         f"{'s' if rec.Rows != 1 else ''} across {rec.Filings} filing"
+                         f"{'s' if rec.Filings != 1 else ''}  ·  net ₹{rec.Net:,.0f}")
+                with st.expander(label):
+                    sub = pit_df[pit_df["Symbol"] == rec.Symbol].drop(
+                        columns=["Symbol", "Company"])
+                    sub = sub.dropna(axis=1, how="all")
+                    st.dataframe(sub, use_container_width=True, hide_index=True,
+                                 height=min(600, 35 * len(sub) + 40))
+
+        s2.dataframe(pit_df, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(pit_df) + 40))
-        s2.dataframe(inf_df, use_container_width=True, hide_index=True,
+        s3.dataframe(inf_df, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(inf_df) + 40))
         if failed:
-            s3.dataframe(pd.DataFrame(failed, columns=["Symbol", "Error"]),
+            s4.dataframe(pd.DataFrame(failed, columns=["Symbol", "Error"]),
                          use_container_width=True, hide_index=True)
         else:
-            s3.caption("None.")
+            s4.caption("None.")
