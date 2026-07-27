@@ -176,57 +176,70 @@ def load_pit(from_d, to_d, index="equities"):
     return inf_df, pd.DataFrame(recs, columns=FLAT), failed
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_fpi(n=FPI_N):
+def _fpi_session():
     fs = requests.Session()
     fs.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"})
+    return fs
 
-    def numf(t):
-        t = t.replace(",", "").strip()
-        try:
-            return int(t)
-        except ValueError:
-            try:
-                return float(t)
-            except ValueError:
-                return None
 
-    def parse(val):
-        grid = [[(c.get_text(strip=True), int(c.get("colspan") or 1))
-                 for c in tr.find_all(["td", "th"])]
-                for tr in BeautifulSoup(fs.get(FPI_BASE + val.replace("~/", ""), timeout=30).text,
-                                        "html.parser").find_all("table")[0].find_all("tr")]
-        exp = lambda r: [t for t, sp in r for _ in range(sp)]
-        b, u, sb = exp(grid[0]), exp(grid[1]), exp(grid[3])
-        cols = {b[ci]: ci for ci in range(2, 98)
-                if "Net Investment" in b[ci] and u[ci] == "IN INR Cr." and sb[ci] == "Total"}
-        return {p: {grid[ri][1][0]: numf(grid[ri][ci][0])
-                    for ri in range(4, len(grid)) if grid[ri][1][0]}
-                for p, ci in cols.items()}
-
+def _fpi_num(t):
+    t = t.replace(",", "").strip()
     try:
-        opts = [o["value"] for o in BeautifulSoup(fs.get(FPI_URL, timeout=30).text, "html.parser")
+        return int(t)
+    except ValueError:
+        try:
+            return float(t)
+        except ValueError:
+            return None
+
+
+def _fpi_parse(fs, val):
+    grid = [[(c.get_text(strip=True), int(c.get("colspan") or 1))
+             for c in tr.find_all(["td", "th"])]
+            for tr in BeautifulSoup(fs.get(FPI_BASE + val.replace("~/", ""), timeout=30).text,
+                                    "html.parser").find_all("table")[0].find_all("tr")]
+    exp = lambda r: [t for t, sp in r for _ in range(sp)]
+    b, u, sb = exp(grid[0]), exp(grid[1]), exp(grid[3])
+    cols = {b[ci]: ci for ci in range(2, 98)
+            if "Net Investment" in b[ci] and u[ci] == "IN INR Cr." and sb[ci] == "Total"}
+    return {p: {grid[ri][1][0]: _fpi_num(grid[ri][ci][0])
+                for ri in range(4, len(grid)) if grid[ri][1][0]}
+            for p, ci in cols.items()}
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fpi_options():
+    try:
+        fs = _fpi_session()
+        return [(o["value"], o.text.strip())
+                for o in BeautifulSoup(fs.get(FPI_URL, timeout=30).text, "html.parser")
                 .select("select[name=ddlfortnighly] option") if o.get("value")]
     except Exception:
-        return None, None
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fpi_fetch(vals):
+    fs = _fpi_session()
     periods = {}
-    for val in opts[:n + 1]:
-        if len(periods) >= n:
-            break
-        for p, d in parse(val).items():
+    for val in vals:
+        for p, d in _fpi_parse(fs, val).items():
             periods.setdefault(p, d)
-    if not periods:
-        return None, None
-    MON = dict(zip("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), range(1, 13)))
-    key = lambda p: (lambda l, y: (int(y), MON[l[:3]], int(l.split("-")[-1].split()[0])))(
-        *p.replace("Net Investment ", "").rsplit(", ", 1))
-    want = sorted(list(periods)[:n], key=key)
-    labels = [p.replace("Net Investment ", "") for p in want]
-    sectors = [x for x in next(iter(periods.values())) if x and x.lower() != "grand total"]
-    df = pd.DataFrame({lab: [periods[p].get(sec) for sec in sectors]
-                       for lab, p in zip(labels, want)}, index=sectors)
-    return df, labels
+    return periods
+
+
+MON = dict(zip("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), range(1, 13)))
+
+
+def fpi_key(p):
+    l, y = p.replace("Net Investment ", "").rsplit(", ", 1)
+    return (int(y), MON[l[:3]], int(l.split("-")[-1].split()[0]))
+
+
+def fpi_month(p):
+    l, y = p.replace("Net Investment ", "").rsplit(", ", 1)
+    return f"{l[:3]} {y}"
 
 
 def pit_xlsx(inf_df, pit_df, failed):
@@ -309,7 +322,8 @@ with b2:
         load_mwpl.clear()
         load_oi.clear()
         load_pit.clear()
-        load_fpi.clear()
+        fpi_options.clear()
+        fpi_fetch.clear()
 
 t0, t1, t2, t3, t4 = st.tabs(["About", "MWPL Client Positions",
                               "Participant OI (1M)", "Insider Trading (PIT)",
@@ -512,71 +526,77 @@ with t3:
                      height=min(1200, 35 * len(flat) + 40))
 
 with t4:
-    fpi, labels = load_fpi()
-    if fpi is None:
+    opts = fpi_options()
+    if not opts:
         st.error("NSDL unreachable. Hit Refresh and try again.")
     else:
-        st.caption(f"Net Investment \u00b7 INR Cr \u00b7 last {len(labels)} fortnights \u00b7 live from NSDL")
+        newest_val = opts[0][0]
+        latest = fpi_fetch((newest_val,))
+        if not latest:
+            st.error("Couldn't load latest NSDL data.")
+            st.stop()
+        lat_periods = sorted(latest, key=fpi_key)
+        bar_period = lat_periods[-1]
+        sectors_all = [x for x in latest[bar_period] if x and x.lower() != "grand total"]
 
-        # month-year label for each fortnight, preserving order
-        def my(lbl):
-            l, y = lbl.rsplit(", ", 1)
-            return f"{l[:3]} {y}"
-        my_labels, seen = [], {}
-        for lbl in labels:
-            m = my(lbl)
-            seen[m] = seen.get(m, 0) + 1
-            my_labels.append(f"{m} ({'1st' if seen[m] == 1 else '2nd'})" if labels.count(lbl) or
-                             [my(x) for x in labels].count(m) > 1 else m)
-        disp = {lbl: my_labels[i] for i, lbl in enumerate(labels)}
+        st.caption("Net Investment \u00b7 INR Cr \u00b7 live from NSDL")
 
-        c1, c2 = st.columns(2)
-        period = c1.selectbox("Period (bar)", labels, index=len(labels) - 1,
-                              format_func=lambda l: disp[l], key="fpi_period")
-        default_sec = "Metals & Mining" if "Metals & Mining" in fpi.index else fpi.index[0]
-        sector = c2.selectbox("Sector (line)", list(fpi.index),
-                              index=list(fpi.index).index(default_sec), key="fpi_sector")
-
-        cf, ct = st.columns(2)
-        pfrom = cf.selectbox("From", labels, index=0,
-                             format_func=lambda l: disp[l], key="fpi_from")
-        pto = ct.selectbox("To", labels, index=len(labels) - 1,
-                           format_func=lambda l: disp[l], key="fpi_to")
-
-        b = fpi[period].dropna().sort_values().reset_index()
-        b.columns = ["Sector", "Value"]
+        vals = latest[bar_period]
+        b = pd.DataFrame({"Sector": sectors_all,
+                          "Value": [vals.get(s) for s in sectors_all]}).dropna()
         b["Sign"] = b["Value"].apply(lambda v: "Positive" if v >= 0 else "Negative")
-        st.subheader(f"Sector-wise flows \u2014 {disp[period]}")
+        st.subheader(f"Sector-wise flows \u2014 {fpi_month(bar_period)}")
         bars = alt.Chart(b).mark_bar().encode(
             x=alt.X("Value:Q", title="Net Investment (INR Cr)"),
             y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending"), title=None),
             color=alt.Color("Sign:N", scale=alt.Scale(domain=["Positive", "Negative"],
                                                       range=[NAVY, GREEN]), legend=None),
             tooltip=["Sector", "Value"])
-        text = alt.Chart(b).mark_text(align="left", dx=3, color="white", fontSize=10).encode(
+        text = alt.Chart(b).mark_text(align="left", baseline="middle", dx=4,
+                                      color="white", fontSize=10).encode(
             x="Value:Q",
             y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending")),
             text=alt.Text("Value:Q", format=",.0f"),
             detail="Sign:N")
-        st.altair_chart((bars + text).properties(height=560), use_container_width=True)
+        st.altair_chart((bars + text).properties(height=620).configure_axisY(labelLimit=400),
+                        use_container_width=True)
 
-        i0, i1 = labels.index(pfrom), labels.index(pto)
-        if i0 > i1:
-            i0, i1 = i1, i0
-        sub_labels = labels[i0:i1 + 1]
-        ln = fpi.loc[sector, sub_labels].reset_index()
-        ln.columns = ["Period", "Value"]
-        ln["MY"] = ln["Period"].map(disp)
-        st.subheader(f"{sector} \u2014 trend  ({disp[pfrom]} \u2192 {disp[pto]})")
+        st.subheader("Sector trend")
+        default_sec = "Metals & Mining" if "Metals & Mining" in sectors_all else sectors_all[0]
+        sector = st.selectbox("Sector (line)", sectors_all,
+                              index=sectors_all.index(default_sec), key="fpi_sector")
+
+        months, mval = [], {}
+        for val, txt in opts:
+            parts = txt.replace(",", "").split()
+            if len(parts) >= 3:
+                ml = f"{parts[0][:3].title()} {parts[-1]}"
+                if ml not in mval:
+                    months.append(ml)
+                    mval[ml] = val
+
+        pfrom = st.selectbox("From", months, index=min(9, len(months) - 1), key="fpi_from")
+        pto = st.selectbox("To", months, index=0, key="fpi_to")
+
+        i_from, i_to = months.index(pfrom), months.index(pto)
+        lo, hi = min(i_from, i_to), max(i_from, i_to)
+        need_vals = tuple(mval[m] for m in months[lo:hi + 1])
+
+        with st.spinner("Loading range from NSDL\u2026"):
+            rng = fpi_fetch(need_vals)
+
+        keep = sorted((p for p in rng), key=fpi_key)
+        ln = pd.DataFrame({"Period": [fpi_month(p) for p in keep],
+                           "Value": [rng[p].get(sector) for p in keep]}).dropna()
         st.altair_chart(
-            alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=60),
+            alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=55),
                                     strokeWidth=2, color=NAVY).encode(
-                x=alt.X("MY:O", sort=[disp[l] for l in sub_labels], title="Fortnight",
+                x=alt.X("Period:O", sort=list(ln["Period"]), title="Fortnight",
                         axis=alt.Axis(labelAngle=-40)),
                 y=alt.Y("Value:Q", title="Net Investment (INR Cr)"),
-                tooltip=["MY", "Value"],
+                tooltip=["Period", "Value"],
             ).properties(height=340), use_container_width=True)
 
-        st.download_button("CSV", fpi.to_csv().encode(),
-                           f"fpi_netinvestment_{dt.date.today():%d%m%Y}.csv",
+        st.download_button("CSV", ln.to_csv(index=False).encode(),
+                           f"fpi_{sector[:12]}_{dt.date.today():%d%m%Y}.csv",
                            "text/csv", key="dl_fpi")
