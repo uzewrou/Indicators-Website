@@ -517,36 +517,64 @@ with t4:
         st.error("NSDL unreachable. Hit Refresh and try again.")
     else:
         st.caption(f"Net Investment \u00b7 INR Cr \u00b7 last {len(labels)} fortnights \u00b7 live from NSDL")
+
+        # month-year label for each fortnight, preserving order
+        def my(lbl):
+            l, y = lbl.rsplit(", ", 1)
+            return f"{l[:3]} {y}"
+        my_labels, seen = [], {}
+        for lbl in labels:
+            m = my(lbl)
+            seen[m] = seen.get(m, 0) + 1
+            my_labels.append(f"{m} ({'1st' if seen[m] == 1 else '2nd'})" if labels.count(lbl) or
+                             [my(x) for x in labels].count(m) > 1 else m)
+        disp = {lbl: my_labels[i] for i, lbl in enumerate(labels)}
+
         c1, c2 = st.columns(2)
-        period = c1.selectbox("Period (bar)", labels, index=len(labels) - 1, key="fpi_period")
+        period = c1.selectbox("Period (bar)", labels, index=len(labels) - 1,
+                              format_func=lambda l: disp[l], key="fpi_period")
         default_sec = "Metals & Mining" if "Metals & Mining" in fpi.index else fpi.index[0]
         sector = c2.selectbox("Sector (line)", list(fpi.index),
                               index=list(fpi.index).index(default_sec), key="fpi_sector")
 
+        cf, ct = st.columns(2)
+        pfrom = cf.selectbox("From", labels, index=0,
+                             format_func=lambda l: disp[l], key="fpi_from")
+        pto = ct.selectbox("To", labels, index=len(labels) - 1,
+                           format_func=lambda l: disp[l], key="fpi_to")
+
         b = fpi[period].dropna().sort_values().reset_index()
         b.columns = ["Sector", "Value"]
         b["Sign"] = b["Value"].apply(lambda v: "Positive" if v >= 0 else "Negative")
-        st.subheader(f"Sector-wise flows \u2014 {period}")
-        st.altair_chart(
-            alt.Chart(b).mark_bar().encode(
-                x=alt.X("Value:Q", title="Net Investment (INR Cr)"),
-                y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending"),
-                        title=None),
-                color=alt.Color("Sign:N", scale=alt.Scale(domain=["Positive", "Negative"],
-                                                          range=[NAVY, GREEN]), legend=None),
-                tooltip=["Sector", "Value"],
-            ).properties(height=560), use_container_width=True)
+        st.subheader(f"Sector-wise flows \u2014 {disp[period]}")
+        bars = alt.Chart(b).mark_bar().encode(
+            x=alt.X("Value:Q", title="Net Investment (INR Cr)"),
+            y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending"), title=None),
+            color=alt.Color("Sign:N", scale=alt.Scale(domain=["Positive", "Negative"],
+                                                      range=[NAVY, GREEN]), legend=None),
+            tooltip=["Sector", "Value"])
+        text = alt.Chart(b).mark_text(align="left", dx=3, color="white", fontSize=10).encode(
+            x="Value:Q",
+            y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending")),
+            text=alt.Text("Value:Q", format=",.0f"),
+            detail="Sign:N")
+        st.altair_chart((bars + text).properties(height=560), use_container_width=True)
 
-        ln = fpi.loc[sector].reset_index()
+        i0, i1 = labels.index(pfrom), labels.index(pto)
+        if i0 > i1:
+            i0, i1 = i1, i0
+        sub_labels = labels[i0:i1 + 1]
+        ln = fpi.loc[sector, sub_labels].reset_index()
         ln.columns = ["Period", "Value"]
-        st.subheader(f"{sector} \u2014 trend")
+        ln["MY"] = ln["Period"].map(disp)
+        st.subheader(f"{sector} \u2014 trend  ({disp[pfrom]} \u2192 {disp[pto]})")
         st.altair_chart(
             alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=60),
                                     strokeWidth=2, color=NAVY).encode(
-                x=alt.X("Period:O", sort=labels, title="Fortnight",
+                x=alt.X("MY:O", sort=[disp[l] for l in sub_labels], title="Fortnight",
                         axis=alt.Axis(labelAngle=-40)),
                 y=alt.Y("Value:Q", title="Net Investment (INR Cr)"),
-                tooltip=["Period", "Value"],
+                tooltip=["MY", "Value"],
             ).properties(height=340), use_container_width=True)
 
         st.download_button("CSV", fpi.to_csv().encode(),
