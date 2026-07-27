@@ -3,13 +3,18 @@ from concurrent.futures import ThreadPoolExecutor
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="NSE Derivatives", page_icon="📊", layout="wide")
 REF = "https://www.nseindia.com/all-reports-derivatives"
 ARCH = "https://nsearchives.nseindia.com/content/nsccl"
 PIT_REF = "https://www.nseindia.com/companies-listing/corporate-filings-insider-trading"
 PIT_API = "https://www.nseindia.com/api/corporates-pit-gg"
+FPI_URL = "https://www.fpi.nsdl.co.in/web/Reports/FPI_Fortnightly_Selection.aspx"
+FPI_BASE = "https://www.fpi.nsdl.co.in/web/"
 PARTS = ["FII", "Pro", "Client", "DII"]
+NAVY, GREEN = "#1F3864", "#2E9E5B"
+FPI_N = 10
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Ashika_logo-removebg-preview.png")
 
 GROUPS = [
@@ -35,7 +40,6 @@ HEAD = [("Symbol", None), ("Company", None), ("Broadcast", None),
         ("Regulation", None), ("Submission", None)] + GROUPS
 FLAT = [t if s is None else f"{t} - {s}" for t, s in HEAD]
 
-# columns hidden in the on-screen tables (still present in the Excel/CSV exports)
 PIT_HIDE = {"Sr. No.", "Category of person", "CIN / DIN",
             "Description of type of instrument (applicable in case of other is selected)"}
 PIT_FRONT = ["Name of the person", "Type of instrument"]
@@ -172,6 +176,59 @@ def load_pit(from_d, to_d, index="equities"):
     return inf_df, pd.DataFrame(recs, columns=FLAT), failed
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_fpi(n=FPI_N):
+    fs = requests.Session()
+    fs.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"})
+
+    def numf(t):
+        t = t.replace(",", "").strip()
+        try:
+            return int(t)
+        except ValueError:
+            try:
+                return float(t)
+            except ValueError:
+                return None
+
+    def parse(val):
+        grid = [[(c.get_text(strip=True), int(c.get("colspan") or 1))
+                 for c in tr.find_all(["td", "th"])]
+                for tr in BeautifulSoup(fs.get(FPI_BASE + val.replace("~/", ""), timeout=30).text,
+                                        "html.parser").find_all("table")[0].find_all("tr")]
+        exp = lambda r: [t for t, sp in r for _ in range(sp)]
+        b, u, sb = exp(grid[0]), exp(grid[1]), exp(grid[3])
+        cols = {b[ci]: ci for ci in range(2, 98)
+                if "Net Investment" in b[ci] and u[ci] == "IN INR Cr." and sb[ci] == "Total"}
+        return {p: {grid[ri][1][0]: numf(grid[ri][ci][0])
+                    for ri in range(4, len(grid)) if grid[ri][1][0]}
+                for p, ci in cols.items()}
+
+    try:
+        opts = [o["value"] for o in BeautifulSoup(fs.get(FPI_URL, timeout=30).text, "html.parser")
+                .select("select[name=ddlfortnighly] option") if o.get("value")]
+    except Exception:
+        return None, None
+    periods = {}
+    for val in opts[:n + 1]:
+        if len(periods) >= n:
+            break
+        for p, d in parse(val).items():
+            periods.setdefault(p, d)
+    if not periods:
+        return None, None
+    MON = dict(zip("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), range(1, 13)))
+    key = lambda p: (lambda l, y: (int(y), MON[l[:3]], int(l.split("-")[-1].split()[0])))(
+        *p.replace("Net Investment ", "").rsplit(", ", 1))
+    want = sorted(list(periods)[:n], key=key)
+    labels = [p.replace("Net Investment ", "") for p in want]
+    sectors = [x for x in next(iter(periods.values())) if x and x.lower() != "grand total"]
+    df = pd.DataFrame({lab: [periods[p].get(sec) for sec in sectors]
+                       for lab, p in zip(labels, want)}, index=sectors)
+    return df, labels
+
+
 def pit_xlsx(inf_df, pit_df, failed):
     thin = Border(*[Side(style="thin", color="999999")] * 4)
     hdr = PatternFill("solid", fgColor="D9D9D9")
@@ -246,15 +303,17 @@ with a2:
 
 b1, b2 = st.columns([5, 1], vertical_alignment="center")
 with b1:
-    st.caption("MWPL client positions · participant-wise open interest · insider trading · live from NSE")
+    st.caption("MWPL client positions · participant-wise open interest · insider trading · FPI flows · live")
 with b2:
     if st.button("Refresh"):
         load_mwpl.clear()
         load_oi.clear()
         load_pit.clear()
+        load_fpi.clear()
 
-t0, t1, t2, t3 = st.tabs(["About", "MWPL Client Positions",
-                          "Participant OI (1M)", "Insider Trading (PIT)"])
+t0, t1, t2, t3, t4 = st.tabs(["About", "MWPL Client Positions",
+                              "Participant OI (1M)", "Insider Trading (PIT)",
+                              "FPI Sector Flows"])
 
 with t0:
     st.markdown("""
@@ -281,10 +340,14 @@ Each filing is an iXBRL document parsed into two tables: the company's general i
 and the PIT disclosure rows (person, category, holdings before and after, quantity, value,
 transaction type, mode). Buy/Sell and contract columns are populated only for derivatives.
 
+**FPI Sector Flows**  
+NSDL fortnightly sector-wise FII/FPI net investment (INR Cr). Bar chart shows one
+fortnight across all sectors; line chart tracks a single sector across the last ~10 fortnights.
+
 **Notes**  
 Position date runs one trading day behind the publish date. Missing days are holidays.
 Data refreshes every 5 minutes, or immediately via Refresh. Nothing is stored locally.
-Source: NSE India. Internal research use only, not investment advice.
+Source: NSE India / NSDL. Internal research use only, not investment advice.
 """)
 
 with t1:
@@ -447,3 +510,45 @@ with t3:
         flat = view_cols(pit_df, keep_symbol=True)
         s2.dataframe(flat, use_container_width=True, hide_index=True,
                      height=min(1200, 35 * len(flat) + 40))
+
+with t4:
+    fpi, labels = load_fpi()
+    if fpi is None:
+        st.error("NSDL unreachable. Hit Refresh and try again.")
+    else:
+        st.caption(f"Net Investment \u00b7 INR Cr \u00b7 last {len(labels)} fortnights \u00b7 live from NSDL")
+        c1, c2 = st.columns(2)
+        period = c1.selectbox("Period (bar)", labels, index=len(labels) - 1, key="fpi_period")
+        default_sec = "Metals & Mining" if "Metals & Mining" in fpi.index else fpi.index[0]
+        sector = c2.selectbox("Sector (line)", list(fpi.index),
+                              index=list(fpi.index).index(default_sec), key="fpi_sector")
+
+        b = fpi[period].dropna().sort_values().reset_index()
+        b.columns = ["Sector", "Value"]
+        b["Sign"] = b["Value"].apply(lambda v: "Positive" if v >= 0 else "Negative")
+        st.subheader(f"Sector-wise flows \u2014 {period}")
+        st.altair_chart(
+            alt.Chart(b).mark_bar().encode(
+                x=alt.X("Value:Q", title="Net Investment (INR Cr)"),
+                y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending"),
+                        title=None),
+                color=alt.Color("Sign:N", scale=alt.Scale(domain=["Positive", "Negative"],
+                                                          range=[NAVY, GREEN]), legend=None),
+                tooltip=["Sector", "Value"],
+            ).properties(height=560), use_container_width=True)
+
+        ln = fpi.loc[sector].reset_index()
+        ln.columns = ["Period", "Value"]
+        st.subheader(f"{sector} \u2014 trend")
+        st.altair_chart(
+            alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=60),
+                                    strokeWidth=2, color=NAVY).encode(
+                x=alt.X("Period:O", sort=labels, title="Fortnight",
+                        axis=alt.Axis(labelAngle=-40)),
+                y=alt.Y("Value:Q", title="Net Investment (INR Cr)"),
+                tooltip=["Period", "Value"],
+            ).properties(height=340), use_container_width=True)
+
+        st.download_button("CSV", fpi.to_csv().encode(),
+                           f"fpi_netinvestment_{dt.date.today():%d%m%Y}.csv",
+                           "text/csv", key="dl_fpi")
