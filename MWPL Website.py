@@ -175,58 +175,47 @@ def load_pit(from_d, to_d, index="equities"):
                         [c for c in inf_df.columns if c not in ("Symbol", "Company")]]
     return inf_df, pd.DataFrame(recs, columns=FLAT), failed
 
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_fpi(n=FPI_N):
+def _fpi_session():
     fs = requests.Session()
     fs.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"})
+    return fs
 
-    def numf(t):
-        t = t.replace(",", "").strip()
-        try:
-            return int(t)
-        except ValueError:
-            try:
-                return float(t)
-            except ValueError:
-                return None
 
-    def parse(val):
-        grid = [[(c.get_text(strip=True), int(c.get("colspan") or 1))
-                 for c in tr.find_all(["td", "th"])]
-                for tr in BeautifulSoup(fs.get(FPI_BASE + val.replace("~/", ""), timeout=30).text,
-                                        "html.parser").find_all("table")[0].find_all("tr")]
-        exp = lambda r: [t for t, sp in r for _ in range(sp)]
-        b, u, sb = exp(grid[0]), exp(grid[1]), exp(grid[3])
-        cols = {b[ci]: ci for ci in range(2, 98)
-                if "Net Investment" in b[ci] and u[ci] == "IN INR Cr." and sb[ci] == "Total"}
-        return {p: {grid[ri][1][0]: numf(grid[ri][ci][0])
-                    for ri in range(4, len(grid)) if grid[ri][1][0]}
-                for p, ci in cols.items()}
-
+def _fpi_num(t):
+    t = t.replace(",", "").strip()
     try:
-        opts = [o["value"] for o in BeautifulSoup(fs.get(FPI_URL, timeout=30).text, "html.parser")
+        return int(t)
+    except ValueError:
+        try:
+            return float(t)
+        except ValueError:
+            return None
+
+
+def _fpi_parse(fs, val):
+    grid = [[(c.get_text(strip=True), int(c.get("colspan") or 1))
+             for c in tr.find_all(["td", "th"])]
+            for tr in BeautifulSoup(fs.get(FPI_BASE + val.replace("~/", ""), timeout=30).text,
+                                    "html.parser").find_all("table")[0].find_all("tr")]
+    exp = lambda r: [t for t, sp in r for _ in range(sp)]
+    b, u, sb = exp(grid[0]), exp(grid[1]), exp(grid[3])
+    cols = {b[ci]: ci for ci in range(2, 98)
+            if "Net Investment" in b[ci] and u[ci] == "IN INR Cr." and sb[ci] == "Total"}
+    return {p: {grid[ri][1][0]: _fpi_num(grid[ri][ci][0])
+                for ri in range(4, len(grid)) if grid[ri][1][0]}
+            for p, ci in cols.items()}
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fpi_options():
+    try:
+        fs = _fpi_session()
+        return [(o["value"], o.text.strip())
+                for o in BeautifulSoup(fs.get(FPI_URL, timeout=30).text, "html.parser")
                 .select("select[name=ddlfortnighly] option") if o.get("value")]
     except Exception:
-        return None, None
-    periods = {}
-    for val in opts[:n + 1]:
-        if len(periods) >= n:
-            break
-        for p, d in parse(val).items():
-            periods.setdefault(p, d)
-    if not periods:
-        return None, None
-    MON = dict(zip("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), range(1, 13)))
-    key = lambda p: (lambda l, y: (int(y), MON[l[:3]], int(l.split("-")[-1].split()[0])))(
-        *p.replace("Net Investment ", "").rsplit(", ", 1))
-    want = sorted(list(periods)[:n], key=key)
-    labels = [p.replace("Net Investment ", "") for p in want]
-    sectors = [x for x in next(iter(periods.values())) if x and x.lower() != "grand total"]
-    df = pd.DataFrame({lab: [periods[p].get(sec) for sec in sectors]
-                       for lab, p in zip(labels, want)}, index=sectors)
-    return df, labels
+        return None
 
 def pit_xlsx(inf_df, pit_df, failed):
     thin = Border(*[Side(style="thin", color="999999")] * 4)
@@ -308,7 +297,8 @@ with b2:
         load_mwpl.clear()
         load_oi.clear()
         load_pit.clear()
-        load_fpi.clear()
+        fpi_options.clear()
+        fpi_fetch.clear()
 
 t0, t1, t2, t3, t4 = st.tabs(["About", "MWPL Client Positions",
                               "Participant OI (1M)", "Insider Trading (PIT)",
