@@ -14,7 +14,6 @@ FPI_URL = "https://www.fpi.nsdl.co.in/web/Reports/FPI_Fortnightly_Selection.aspx
 FPI_BASE = "https://www.fpi.nsdl.co.in/web/"
 PARTS = ["FII", "Pro", "Client", "DII"]
 NAVY, GREEN = "#1F3864", "#2E9E5B"
-FPI_N = 10
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Ashika_logo-removebg-preview.png")
 
 GROUPS = [
@@ -175,6 +174,7 @@ def load_pit(from_d, to_d, index="equities"):
                         [c for c in inf_df.columns if c not in ("Symbol", "Company")]]
     return inf_df, pd.DataFrame(recs, columns=FLAT), failed
 
+
 def _fpi_session():
     fs = requests.Session()
     fs.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -216,6 +216,30 @@ def fpi_options():
                 .select("select[name=ddlfortnighly] option") if o.get("value")]
     except Exception:
         return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fpi_fetch(vals):
+    fs = _fpi_session()
+    periods = {}
+    for val in vals:
+        for p, d in _fpi_parse(fs, val).items():
+            periods.setdefault(p, d)
+    return periods
+
+
+MON = dict(zip("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), range(1, 13)))
+
+
+def fpi_key(p):
+    l, y = p.replace("Net Investment ", "").rsplit(", ", 1)
+    return (int(y), MON[l[:3]], int(l.split("-")[-1].split()[0]))
+
+
+def fpi_month(p):
+    l, y = p.replace("Net Investment ", "").rsplit(", ", 1)
+    return f"{l[:3]} {y}"
+
 
 def pit_xlsx(inf_df, pit_df, failed):
     thin = Border(*[Side(style="thin", color="999999")] * 4)
@@ -331,7 +355,7 @@ transaction type, mode). Buy/Sell and contract columns are populated only for de
 
 **FPI Sector Flows**  
 NSDL fortnightly sector-wise FII/FPI net investment (INR Cr). Bar chart shows one
-fortnight across all sectors; line chart tracks a single sector across the last ~10 fortnights.
+fortnight across all sectors; line chart tracks a single sector across a chosen range.
 
 **Notes**  
 Position date runs one trading day behind the publish date. Missing days are holidays.
@@ -505,7 +529,6 @@ with t4:
     if not opts:
         st.error("NSDL unreachable. Hit Refresh and try again.")
     else:
-        # month labels for every option (dedup, newest-first) -> option value
         months, mval = [], {}
         for val, txt in opts:
             parts = txt.replace(",", "").split()
@@ -517,7 +540,6 @@ with t4:
 
         st.caption("Net Investment \u00b7 INR Cr \u00b7 live from NSDL")
 
-        # ---- bar: pick the fortnight up top ----
         bar_month = st.selectbox("Sector-wise flows \u2014 date", months, index=0, key="fpi_bar_month")
         with st.spinner("Loading\u2026"):
             bar_data = fpi_fetch((mval[bar_month],))
@@ -545,7 +567,6 @@ with t4:
         st.altair_chart((bars + text).properties(height=620).configure_axisY(labelLimit=400),
                         use_container_width=True)
 
-        # ---- line: sector + from/to sit with the chart ----
         st.subheader("Sector trend")
         default_sec = "Metals & Mining" if "Metals & Mining" in sectors_all else sectors_all[0]
         sector = st.selectbox("Sector (line)", sectors_all,
