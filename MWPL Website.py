@@ -592,7 +592,8 @@ with t4:
               .dropna()
               .groupby("Period", as_index=False, sort=False)["Value"].sum())
         st.altair_chart(
-            alt.Chart(ln).mark_line(strokeWidth=2, color=NAVY).encode(
+            alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=55),
+                                    strokeWidth=2, color=NAVY).encode(
                 x=alt.X("Period:O", sort=list(ln["Period"]), title="Fortnight",
                         axis=alt.Axis(labelAngle=-40)),
                 y=alt.Y("Value:Q", title="Net Investment (INR Cr)"),
