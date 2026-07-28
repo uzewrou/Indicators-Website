@@ -587,8 +587,10 @@ with t4:
             rng = fpi_fetch(need_vals)
 
         keep = sorted((p for p in rng), key=fpi_key)
-        ln = pd.DataFrame({"Period": [fpi_month(p) for p in keep],
-                           "Value": [rng[p].get(sector) for p in keep]}).dropna()
+        ln = (pd.DataFrame({"Period": [fpi_month(p) for p in keep],
+                            "Value": [rng[p].get(sector) for p in keep]})
+              .dropna()
+              .groupby("Period", as_index=False, sort=False)["Value"].sum())
         st.altair_chart(
             alt.Chart(ln).mark_line(strokeWidth=2, color=NAVY).encode(
                 x=alt.X("Period:O", sort=list(ln["Period"]), title="Fortnight",
