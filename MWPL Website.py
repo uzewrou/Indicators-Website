@@ -511,43 +511,77 @@ with t3:
                      height=min(1200, 35 * len(flat) + 40))
 
 with t4:
-    fpi, labels = load_fpi()
-    if fpi is None:
+    opts = fpi_options()
+    if not opts:
         st.error("NSDL unreachable. Hit Refresh and try again.")
     else:
-        st.caption(f"Net Investment \u00b7 INR Cr \u00b7 last {len(labels)} fortnights \u00b7 live from NSDL")
-        c1, c2 = st.columns(2)
-        period = c1.selectbox("Period (bar)", labels, index=len(labels) - 1, key="fpi_period")
-        default_sec = "Metals & Mining" if "Metals & Mining" in fpi.index else fpi.index[0]
-        sector = c2.selectbox("Sector (line)", list(fpi.index),
-                              index=list(fpi.index).index(default_sec), key="fpi_sector")
+        # month labels for every option (dedup, newest-first) -> option value
+        months, mval = [], {}
+        for val, txt in opts:
+            parts = txt.replace(",", "").split()
+            if len(parts) >= 3:
+                ml = f"{parts[0][:3].title()} {parts[-1]}"
+                if ml not in mval:
+                    months.append(ml)
+                    mval[ml] = val
 
-        b = fpi[period].dropna().sort_values().reset_index()
-        b.columns = ["Sector", "Value"]
+        st.caption("Net Investment \u00b7 INR Cr \u00b7 live from NSDL")
+
+        # ---- bar: pick the fortnight up top ----
+        bar_month = st.selectbox("Sector-wise flows \u2014 date", months, index=0, key="fpi_bar_month")
+        with st.spinner("Loading\u2026"):
+            bar_data = fpi_fetch((mval[bar_month],))
+        cand = [p for p in bar_data if fpi_month(p) == bar_month]
+        bar_period = sorted(cand, key=fpi_key)[-1] if cand else sorted(bar_data, key=fpi_key)[-1]
+        sectors_all = [x for x in bar_data[bar_period] if x and x.lower() != "grand total"]
+
+        vals = bar_data[bar_period]
+        b = pd.DataFrame({"Sector": sectors_all,
+                          "Value": [vals.get(s) for s in sectors_all]}).dropna()
         b["Sign"] = b["Value"].apply(lambda v: "Positive" if v >= 0 else "Negative")
-        st.subheader(f"Sector-wise flows \u2014 {period}")
-        st.altair_chart(
-            alt.Chart(b).mark_bar().encode(
-                x=alt.X("Value:Q", title="Net Investment (INR Cr)"),
-                y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending"),
-                        title=None),
-                color=alt.Color("Sign:N", scale=alt.Scale(domain=["Positive", "Negative"],
-                                                          range=[NAVY, GREEN]), legend=None),
-                tooltip=["Sector", "Value"],
-            ).properties(height=560), use_container_width=True)
+        st.subheader(f"Sector-wise flows \u2014 {fpi_month(bar_period)}")
+        bars = alt.Chart(b).mark_bar().encode(
+            x=alt.X("Value:Q", title="Net Investment (INR Cr)"),
+            y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending"), title=None),
+            color=alt.Color("Sign:N", scale=alt.Scale(domain=["Positive", "Negative"],
+                                                      range=[NAVY, GREEN]), legend=None),
+            tooltip=["Sector", "Value"])
+        text = alt.Chart(b).mark_text(align="left", baseline="middle", dx=4,
+                                      color="white", fontSize=10).encode(
+            x="Value:Q",
+            y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending")),
+            text=alt.Text("Value:Q", format=",.0f"),
+            detail="Sign:N")
+        st.altair_chart((bars + text).properties(height=620).configure_axisY(labelLimit=400),
+                        use_container_width=True)
 
-        ln = fpi.loc[sector].reset_index()
-        ln.columns = ["Period", "Value"]
-        st.subheader(f"{sector} \u2014 trend")
+        # ---- line: sector + from/to sit with the chart ----
+        st.subheader("Sector trend")
+        default_sec = "Metals & Mining" if "Metals & Mining" in sectors_all else sectors_all[0]
+        sector = st.selectbox("Sector (line)", sectors_all,
+                              index=sectors_all.index(default_sec), key="fpi_sector")
+        pfrom = st.selectbox("From", months, index=min(9, len(months) - 1), key="fpi_from")
+        pto = st.selectbox("To", months, index=0, key="fpi_to")
+
+        i_from, i_to = months.index(pfrom), months.index(pto)
+        lo, hi = min(i_from, i_to), max(i_from, i_to)
+        need_vals = tuple(mval[m] for m in months[lo:hi + 1])
+
+        with st.spinner("Loading range from NSDL\u2026"):
+            rng = fpi_fetch(need_vals)
+
+        keep = sorted((p for p in rng), key=fpi_key)
+        ln = pd.DataFrame({"Period": [fpi_month(p) for p in keep],
+                           "Value": [rng[p].get(sector) for p in keep]}).dropna()
         st.altair_chart(
-            alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=60),
+            alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=55),
                                     strokeWidth=2, color=NAVY).encode(
-                x=alt.X("Period:O", sort=labels, title="Fortnight",
+                x=alt.X("Period:O", sort=list(ln["Period"]), title="Fortnight",
                         axis=alt.Axis(labelAngle=-40)),
                 y=alt.Y("Value:Q", title="Net Investment (INR Cr)"),
                 tooltip=["Period", "Value"],
             ).properties(height=340), use_container_width=True)
 
-        st.download_button("CSV", fpi.to_csv().encode(),
-                           f"fpi_netinvestment_{dt.date.today():%d%m%Y}.csv",
+        st.download_button("CSV", ln.to_csv(index=False).encode(),
+                           f"fpi_{sector[:12]}_{dt.date.today():%d%m%Y}.csv",
                            "text/csv", key="dl_fpi")
