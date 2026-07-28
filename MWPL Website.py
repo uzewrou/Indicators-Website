@@ -407,8 +407,7 @@ with t2:
                 st.subheader(p)
                 st.caption(f"Avg long {avg['Long']}% · avg short {avg['Short']}%")
                 st.altair_chart(
-            alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=55),
-                                    strokeWidth=2, color=NAVY, interpolate="monotone").encode(
+                    (alt.Chart(m).mark_line(strokeWidth=2).encode(
                         x=xax,
                         y=alt.Y("Value:Q", scale=alt.Scale(zero=False), title="% of futures OI"),
                         color=alt.Color("Side:N", scale=shade)) +
