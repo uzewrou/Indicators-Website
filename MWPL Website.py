@@ -5,7 +5,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="NSE Derivatives", page_icon="📊", layout="wide")
+st.set_page_config(page_title="NSE Indicators", page_icon="📊", layout="wide")
 REF = "https://www.nseindia.com/all-reports-derivatives"
 ARCH = "https://nsearchives.nseindia.com/content/nsccl"
 PIT_REF = "https://www.nseindia.com/companies-listing/corporate-filings-insider-trading"
@@ -308,7 +308,7 @@ st.markdown("""
 
 a1, a2 = st.columns([5, 1], vertical_alignment="center")
 with a1:
-    st.title("NSE Derivatives Monitor")
+    st.title("NSE Indicators Monitor")
 with a2:
     if os.path.exists(LOGO):
         st.image(LOGO, width=130)
@@ -316,6 +316,7 @@ with a2:
 b1, b2 = st.columns([5, 1], vertical_alignment="center")
 with b1:
     st.caption("MWPL client positions · participant-wise open interest · insider trading · FPI flows · live")
+    st.caption("By: Kushagra Singh · kushagra.singh@ashikagroup.com")
 with b2:
     if st.button("Refresh"):
         load_mwpl.clear()
