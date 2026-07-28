@@ -547,24 +547,27 @@ with t4:
         bar_period = sorted(cand, key=fpi_key)[-1] if cand else sorted(bar_data, key=fpi_key)[-1]
         sectors_all = [x for x in bar_data[bar_period] if x and x.lower() != "grand total"]
 
-        vals = bar_data[bar_period]
+       vals = bar_data[bar_period]
         b = pd.DataFrame({"Sector": sectors_all,
                           "Value": [vals.get(s) for s in sectors_all]}).dropna()
         b["Sign"] = b["Value"].apply(lambda v: "Positive" if v >= 0 else "Negative")
+        order = list(b.sort_values("Value", ascending=False)["Sector"])
         st.subheader(f"Sector-wise flows \u2014 {fpi_month(bar_period)}")
+        yenc = alt.Y("Sector:N", sort=order, title=None)
+        xenc = alt.X("Value:Q", title="Net Investment (INR Cr)",
+                     scale=alt.Scale(reverse=True, nice=True))
         bars = alt.Chart(b).mark_bar().encode(
-            x=alt.X("Value:Q", title="Net Investment (INR Cr)"),
-            y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending"), title=None),
+            x=xenc, y=yenc,
             color=alt.Color("Sign:N", scale=alt.Scale(domain=["Positive", "Negative"],
                                                       range=[NAVY, GREEN]), legend=None),
             tooltip=["Sector", "Value"])
-        text = alt.Chart(b).mark_text(align="left", baseline="middle", dx=4,
-                                      color="white", fontSize=10).encode(
-            x="Value:Q",
-            y=alt.Y("Sector:N", sort=alt.EncodingSortField("Value", order="descending")),
-            text=alt.Text("Value:Q", format=",.0f"),
-            detail="Sign:N")
-        st.altair_chart((bars + text).properties(height=620).configure_axisY(labelLimit=400),
+        pos = alt.Chart(b[b["Value"] >= 0]).mark_text(
+            align="right", baseline="middle", dx=-4, color="white", fontSize=10).encode(
+            x=xenc, y=yenc, text=alt.Text("Value:Q", format=",.0f"))
+        neg = alt.Chart(b[b["Value"] < 0]).mark_text(
+            align="left", baseline="middle", dx=4, color="white", fontSize=10).encode(
+            x=xenc, y=yenc, text=alt.Text("Value:Q", format=",.0f"))
+        st.altair_chart((bars + pos + neg).properties(height=620).configure_axisY(labelLimit=400),
                         use_container_width=True)
 
         st.subheader("Sector trend")
