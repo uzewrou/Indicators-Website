@@ -591,7 +591,7 @@ with t4:
                            "Value": [rng[p].get(sector) for p in keep]}).dropna()
         st.altair_chart(
             alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=55),
-                                    strokeWidth=2, color=NAVY, interpolate="monotone").encode(
+                                    strokeWidth=2, color=NAVY, interpolate="basis").encode(
                 x=alt.X("Period:O", sort=list(ln["Period"]), title="Fortnight",
                         axis=alt.Axis(labelAngle=-40)),
                 y=alt.Y("Value:Q", title="Net Investment (INR Cr)"),
