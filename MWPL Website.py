@@ -547,7 +547,9 @@ with t4:
         bar_period = sorted(cand, key=fpi_key)[-1] if cand else sorted(bar_data, key=fpi_key)[-1]
         sectors_all = [x for x in bar_data[bar_period] if x and x.lower() != "grand total"]
 
-       vals = bar_data[bar_period]
+    
+
+        vals = bar_data[bar_period]
         b = pd.DataFrame({"Sector": sectors_all,
                           "Value": [vals.get(s) for s in sectors_all]}).dropna()
         b["Sign"] = b["Value"].apply(lambda v: "Positive" if v >= 0 else "Negative")
@@ -569,7 +571,7 @@ with t4:
             x=xenc, y=yenc, text=alt.Text("Value:Q", format=",.0f"))
         st.altair_chart((bars + pos + neg).properties(height=620).configure_axisY(labelLimit=400),
                         use_container_width=True)
-
+        
         st.subheader("Sector trend")
         default_sec = "Metals & Mining" if "Metals & Mining" in sectors_all else sectors_all[0]
         sector = st.selectbox("Sector (line)", sectors_all,
