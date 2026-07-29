@@ -316,7 +316,7 @@ with a2:
 b1, b2 = st.columns([5, 1], vertical_alignment="center")
 with b1:
     st.caption("MWPL client positions · participant-wise open interest · insider trading · FPI flows · live")
-    st.caption("By: Kushagra Singh · kushagra.singh@ashikagroup.com")
+    st.caption("By: Sundar Kewat (Technical Analyst) & Kushagra Singh (Data Analyst")
 with b2:
     if st.button("Refresh"):
         load_mwpl.clear()
