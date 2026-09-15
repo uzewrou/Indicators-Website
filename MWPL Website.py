@@ -241,6 +241,11 @@ def fpi_month(p):
     return f"{l[:3]} {y}"
 
 
+def fpi_fort(p):
+    l, y = p.replace("Net Investment ", "").rsplit(", ", 1)
+    return f"{l} {y}"
+
+
 def pit_xlsx(inf_df, pit_df, failed):
     thin = Border(*[Side(style="thin", color="999999")] * 4)
     hdr = PatternFill("solid", fgColor="D9D9D9")
@@ -319,6 +324,7 @@ with b1:
     st.caption("By: Sundar Kewat (Technical Analyst) & Kushagra Singh (Data Analyst)")
 with b2:
     if st.button("Refresh"):
+        session.clear()
         load_mwpl.clear()
         load_oi.clear()
         load_pit.clear()
@@ -530,32 +536,30 @@ with t4:
     if not opts:
         st.error("NSDL unreachable. Hit Refresh and try again.")
     else:
-        months, mval = [], {}
+        forts, fval = [], {}
         for val, txt in opts:
             parts = txt.replace(",", "").split()
             if len(parts) >= 3:
-                ml = f"{parts[0][:3].title()} {parts[-1]}"
-                if ml not in mval:
-                    months.append(ml)
-                    mval[ml] = val
+                fl = f"{parts[1]} {parts[0][:3].title()} {parts[-1]}"
+                if fl not in fval:
+                    forts.append(fl)
+                    fval[fl] = val
 
-        st.caption("Net Investment \u00b7 INR Cr \u00b7 live from NSDL")
+        st.caption("Net Investment \u00b7 INR Cr \u00b7 per fortnight \u00b7 live from NSDL")
 
-        bar_month = st.selectbox("Sector-wise flows \u2014 date", months, index=0, key="fpi_bar_month")
+        bar_fort = st.selectbox("Sector-wise flows \u2014 fortnight", forts, index=0, key="fpi_bar_fort")
         with st.spinner("Loading\u2026"):
-            bar_data = fpi_fetch((mval[bar_month],))
-        cand = [p for p in bar_data if fpi_month(p) == bar_month]
+            bar_data = fpi_fetch((fval[bar_fort],))
+        cand = [p for p in bar_data if fpi_fort(p) == bar_fort]
         bar_period = sorted(cand, key=fpi_key)[-1] if cand else sorted(bar_data, key=fpi_key)[-1]
         sectors_all = [x for x in bar_data[bar_period] if x and x.lower() != "grand total"]
-
-    
 
         vals = bar_data[bar_period]
         b = pd.DataFrame({"Sector": sectors_all,
                           "Value": [vals.get(s) for s in sectors_all]}).dropna()
         b["Sign"] = b["Value"].apply(lambda v: "Positive" if v >= 0 else "Negative")
         order = list(b.sort_values("Value", ascending=False)["Sector"])
-        st.subheader(f"Sector-wise flows \u2014 {fpi_month(bar_period)}")
+        st.subheader(f"Sector-wise flows \u2014 {fpi_fort(bar_period)}")
         yenc = alt.Y("Sector:N", sort=order, title=None)
         xenc = alt.X("Value:Q", title="Net Investment (INR Cr)",
                      scale=alt.Scale(reverse=True, nice=True))
@@ -572,26 +576,27 @@ with t4:
             x=xenc, y=yenc, text=alt.Text("Value:Q", format=",.0f"))
         st.altair_chart((bars + pos + neg).properties(height=620).configure_axisY(labelLimit=400),
                         use_container_width=True)
-        
+
         st.subheader("Sector trend")
         default_sec = "Metals & Mining" if "Metals & Mining" in sectors_all else sectors_all[0]
         sector = st.selectbox("Sector (line)", sectors_all,
                               index=sectors_all.index(default_sec), key="fpi_sector")
-        pfrom = st.selectbox("From", months, index=min(9, len(months) - 1), key="fpi_from")
-        pto = st.selectbox("To", months, index=0, key="fpi_to")
+        pfrom = st.selectbox("From", forts, index=min(19, len(forts) - 1), key="fpi_from")
+        pto = st.selectbox("To", forts, index=0, key="fpi_to")
 
-        i_from, i_to = months.index(pfrom), months.index(pto)
+        i_from, i_to = forts.index(pfrom), forts.index(pto)
         lo, hi = min(i_from, i_to), max(i_from, i_to)
-        need_vals = tuple(mval[m] for m in months[lo:hi + 1])
+        sel = forts[lo:hi + 1]
+        need_vals = tuple(fval[m] for m in sel)
 
         with st.spinner("Loading range from NSDL\u2026"):
             rng = fpi_fetch(need_vals)
 
-        keep = sorted((p for p in rng), key=fpi_key)
-        ln = (pd.DataFrame({"Period": [fpi_month(p) for p in keep],
+        want = set(sel)
+        keep = sorted((p for p in rng if fpi_fort(p) in want), key=fpi_key)
+        ln = (pd.DataFrame({"Period": [fpi_fort(p) for p in keep],
                             "Value": [rng[p].get(sector) for p in keep]})
-              .dropna()
-              .groupby("Period", as_index=False, sort=False)["Value"].sum())
+              .dropna().drop_duplicates("Period"))
         st.altair_chart(
             alt.Chart(ln).mark_line(point=alt.OverlayMarkDef(color=NAVY, size=55),
                                     strokeWidth=2, color=NAVY).encode(
