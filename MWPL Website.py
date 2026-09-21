@@ -333,13 +333,18 @@ def cal_xlsx(high_df, india_df):
     wb = Workbook()
     ws = wb.active
     ws.title = "Calendar"
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(CAL_COLS))
+    t = ws.cell(1, 1, "Economic Calendar")
+    t.font = Font(bold=True, size=14)
+    t.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 22
     for i, c in enumerate(CAL_COLS, 1):
-        cell = ws.cell(1, i, c)
+        cell = ws.cell(2, i, c)
         cell.font = Font(bold=True); cell.fill = hdr; cell.border = thin
-    for ri, rec in enumerate(comb.itertuples(index=False), 2):
+    for ri, rec in enumerate(comb.itertuples(index=False), 3):
         for i, v in enumerate(rec, 1):
             ws.cell(ri, i, "" if pd.isna(v) else v).border = thin
-    ws.freeze_panes = "A2"
+    ws.freeze_panes = "A3"
     for i in range(1, len(CAL_COLS) + 1):
         ws.column_dimensions[get_column_letter(i)].width = 22
     buf = io.BytesIO()
