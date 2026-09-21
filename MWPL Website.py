@@ -308,6 +308,41 @@ def load_calendar():
     return pd.DataFrame(high)[CAL_COLS], pd.DataFrame(med)[CAL_COLS]
 
 
+def _cal_dt(row):
+    d, t = row["Date"], row["Time"]
+    try:
+        return dt.datetime.strptime(f"{d} {t}", "%Y-%m-%d %I:%M %p")
+    except ValueError:
+        try:
+            return dt.datetime.strptime(d, "%Y-%m-%d")
+        except ValueError:
+            return dt.datetime.max
+
+
+def cal_xlsx(high_df, india_df):
+    thin = Border(*[Side(style="thin", color="999999")] * 4)
+    hdr = PatternFill("solid", fgColor="D9D9D9")
+    comb = (pd.concat([high_df, india_df], ignore_index=True)
+            .drop_duplicates(subset=["Date", "Region", "Event"]))
+    comb = (comb.assign(_k=comb.apply(_cal_dt, axis=1))
+            .sort_values("_k").drop(columns="_k")[CAL_COLS])
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Calendar"
+    for i, c in enumerate(CAL_COLS, 1):
+        cell = ws.cell(1, i, c)
+        cell.font = Font(bold=True); cell.fill = hdr; cell.border = thin
+    for ri, rec in enumerate(comb.itertuples(index=False), 2):
+        for i, v in enumerate(rec, 1):
+            ws.cell(ri, i, "" if pd.isna(v) else v).border = thin
+    ws.freeze_panes = "A2"
+    for i in range(1, len(CAL_COLS) + 1):
+        ws.column_dimensions[get_column_letter(i)].width = 22
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def pit_xlsx(inf_df, pit_df, failed):
     thin = Border(*[Side(style="thin", color="999999")] * 4)
     hdr = PatternFill("solid", fgColor="D9D9D9")
@@ -679,11 +714,11 @@ with t4:
 
 with t5:
     high_df, india_df = load_calendar()
-    st.subheader(f"High importance (3-star) \u2014 all countries + India  ({len(high_df)})")
+    st.download_button("Excel", cal_xlsx(high_df, india_df),
+                       f"economic_calendar_{dt.date.today():%d%m%Y}.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_cal_x")
+    st.subheader(f"High importance (3-star) \u2014 Major countries + India  ({len(high_df)})")
     st.dataframe(high_df, hide_index=True, use_container_width=True)
-    st.download_button("CSV", xl(high_df, "Calendar High"),
-                       f"calendar_high_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_cal_h")
     st.subheader(f"Medium importance (2-star) \u2014 India  ({len(india_df)})")
     st.dataframe(india_df, hide_index=True, use_container_width=True)
-    st.download_button("CSV", xl(india_df, "Calendar India"),
-                       f"calendar_india_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_cal_i")
