@@ -1,4 +1,4 @@
-import io, os, datetime as dt, requests, pandas as pd, streamlit as st, altair as alt
+import io, os, re, datetime as dt, requests, cloudscraper, pandas as pd, streamlit as st, altair as alt
 from concurrent.futures import ThreadPoolExecutor
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -246,6 +246,68 @@ def fpi_fort(p):
     return f"{l} {y}"
 
 
+# --- Economic Calendar (Trading Economics) ---
+CAL_HEAD = {"User-Agent": "Mozilla/5.0"}
+CAL_COLS = ["Date", "Time", "Region", "Event", "Actual", "Forecast", "Consensus", "Previous"]
+
+
+def _cal_parse(html):
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table", id="calendar") or soup.find("table")
+    out = []
+    for tr in table.find_all("tr"):
+        if not tr.get("data-event"):
+            continue
+        span = tr.find("span", class_=re.compile(r"calendar-date-\d"))
+        if not span:
+            continue
+        lvl = re.search(r"calendar-date-(\d)", " ".join(span.get("class", []))).group(1)
+        tds = tr.find_all("td", recursive=False)
+        date = next((c for c in tds[0].get("class", []) if re.match(r"\d{4}-\d{2}-\d{2}", c)), "")
+        ev = tr.find("a", class_="calendar-event")
+        ev = ev.get_text(strip=True) if ev else ""
+        ref = tr.find("span", class_="calendar-reference")
+        ref = ref.get_text(strip=True) if ref else ""
+        iso = tr.find("td", class_="calendar-iso")
+        out.append({
+            "lvl": lvl, "Date": date, "Time": span.get_text(strip=True) or "--",
+            "Region": iso.get_text(strip=True) if iso else "",
+            "Event": (ev + " " + ref).strip(),
+            "Actual": tds[3].get_text(strip=True) if len(tds) > 3 else "",
+            "Previous": tds[4].get_text(strip=True) if len(tds) > 4 else "",
+            "Consensus": tds[5].get_text(strip=True) if len(tds) > 5 else "",
+            "Forecast": tds[6].get_text(strip=True) if len(tds) > 6 else "",
+        })
+    return out
+
+
+def _cal_sort(rows):
+    seen, uniq = set(), []
+    for r in rows:
+        k = (r["Date"], r["Region"], r["Event"])
+        if k not in seen:
+            seen.add(k); uniq.append(r)
+
+    def key(r):
+        d, t = r["Date"], r["Time"]
+        try:
+            return dt.datetime.strptime(f"{d} {t}", "%Y-%m-%d %I:%M %p")
+        except ValueError:
+            return dt.datetime.strptime(d, "%Y-%m-%d") if d else dt.datetime.max
+
+    return sorted(uniq, key=key)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_calendar():
+    s = cloudscraper.create_scraper()
+    world = _cal_parse(s.get("https://tradingeconomics.com/calendar", headers=CAL_HEAD).text)
+    india = _cal_parse(s.get("https://tradingeconomics.com/india/calendar", headers=CAL_HEAD).text)
+    high = _cal_sort([r for r in world + india if r["lvl"] == "3"])
+    med = _cal_sort([r for r in india if r["lvl"] == "2"])
+    return pd.DataFrame(high)[CAL_COLS], pd.DataFrame(med)[CAL_COLS]
+
+
 def pit_xlsx(inf_df, pit_df, failed):
     thin = Border(*[Side(style="thin", color="999999")] * 4)
     hdr = PatternFill("solid", fgColor="D9D9D9")
@@ -320,7 +382,7 @@ with a2:
 
 b1, b2 = st.columns([5, 1], vertical_alignment="center")
 with b1:
-    st.caption("MWPL client positions · participant-wise open interest · insider trading · FPI flows · live")
+    st.caption("MWPL client positions · participant-wise open interest · insider trading · FPI flows · economic calendar · live")
     st.caption("By: Sundar Kewat (Technical Analyst) & Kushagra Singh (Data Analyst)")
 with b2:
     if st.button("Refresh"):
@@ -330,10 +392,11 @@ with b2:
         load_pit.clear()
         fpi_options.clear()
         fpi_fetch.clear()
+        load_calendar.clear()
 
-t0, t1, t2, t3, t4 = st.tabs(["About", "MWPL Client Positions",
-                              "Participant OI (1M)", "Insider Trading (PIT)",
-                              "FPI Sector Flows"])
+t0, t1, t2, t3, t4, t5 = st.tabs(["About", "MWPL Client Positions",
+                                  "Participant OI (1M)", "Insider Trading (PIT)",
+                                  "FPI Sector Flows", "Economic Calendar"])
 
 with t0:
     st.markdown("""
@@ -364,10 +427,14 @@ transaction type, mode). Buy/Sell and contract columns are populated only for de
 NSDL fortnightly sector-wise FII/FPI net investment (INR Cr). Bar chart shows one
 fortnight across all sectors; line chart tracks a single sector across a chosen range.
 
+**Economic Calendar**  
+Trading Economics macro calendar. High-importance (3-star) events across all countries
+plus India, and medium-importance (2-star) events for India only.
+
 **Notes**  
 Position date runs one trading day behind the publish date. Missing days are holidays.
 Data refreshes every 5 minutes, or immediately via Refresh. Nothing is stored locally.
-Source: NSE India / NSDL. Internal research use only, not investment advice.
+Source: NSE India / NSDL / Trading Economics. Internal research use only, not investment advice.
 """)
 
 with t1:
@@ -609,3 +676,14 @@ with t4:
         st.download_button("CSV", ln.to_csv(index=False).encode(),
                            f"fpi_{sector[:12]}_{dt.date.today():%d%m%Y}.csv",
                            "text/csv", key="dl_fpi")
+
+with t5:
+    high_df, india_df = load_calendar()
+    st.subheader(f"High importance (3-star) \u2014 all countries + India  ({len(high_df)})")
+    st.dataframe(high_df, hide_index=True, use_container_width=True)
+    st.download_button("CSV", xl(high_df, "Calendar High"),
+                       f"calendar_high_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_cal_h")
+    st.subheader(f"Medium importance (2-star) \u2014 India  ({len(india_df)})")
+    st.dataframe(india_df, hide_index=True, use_container_width=True)
+    st.download_button("CSV", xl(india_df, "Calendar India"),
+                       f"calendar_india_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_cal_i")
