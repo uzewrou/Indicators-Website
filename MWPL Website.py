@@ -319,13 +319,17 @@ def _cal_dt(row):
             return dt.datetime.max
 
 
+def cal_combined(high_df, india_df):
+    comb = (pd.concat([high_df, india_df], ignore_index=True)
+            .drop_duplicates(subset=["Date", "Region", "Event"]))
+    return (comb.assign(_k=comb.apply(_cal_dt, axis=1))
+            .sort_values("_k").drop(columns="_k").reset_index(drop=True)[CAL_COLS])
+
+
 def cal_xlsx(high_df, india_df):
     thin = Border(*[Side(style="thin", color="999999")] * 4)
     hdr = PatternFill("solid", fgColor="D9D9D9")
-    comb = (pd.concat([high_df, india_df], ignore_index=True)
-            .drop_duplicates(subset=["Date", "Region", "Event"]))
-    comb = (comb.assign(_k=comb.apply(_cal_dt, axis=1))
-            .sort_values("_k").drop(columns="_k")[CAL_COLS])
+    comb = cal_combined(high_df, india_df)
     wb = Workbook()
     ws = wb.active
     ws.title = "Calendar"
@@ -714,11 +718,10 @@ with t4:
 
 with t5:
     high_df, india_df = load_calendar()
+    cal_df = cal_combined(high_df, india_df)
     st.download_button("Excel", cal_xlsx(high_df, india_df),
                        f"economic_calendar_{dt.date.today():%d%m%Y}.xlsx",
                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                        key="dl_cal_x")
-    st.subheader(f"High importance (3-star) \u2014 Major countries + India  ({len(high_df)})")
-    st.dataframe(high_df, hide_index=True, use_container_width=True)
-    st.subheader(f"Medium importance (2-star) \u2014 India  ({len(india_df)})")
-    st.dataframe(india_df, hide_index=True, use_container_width=True)
+    st.subheader(f"Economic Calendar \u2014 3-star (Major countries + India) & 2-star India  ({len(cal_df)})")
+    st.dataframe(cal_df, hide_index=True, use_container_width=True)
