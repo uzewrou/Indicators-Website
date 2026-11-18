@@ -14,6 +14,7 @@ FPI_URL = "https://www.fpi.nsdl.co.in/web/Reports/FPI_Fortnightly_Selection.aspx
 FPI_BASE = "https://www.fpi.nsdl.co.in/web/"
 PARTS = ["FII", "Pro", "Client", "DII"]
 NAVY, GREEN = "#1F3864", "#2E9E5B"
+SHOW_PIT, SHOW_CAL = False, False  # flip to True to re-enable
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Ashika_logo-removebg-preview.png")
 
 GROUPS = [
@@ -438,9 +439,13 @@ with b2:
         fpi_fetch.clear()
         load_calendar.clear()
 
-t0, t1, t2, t3, t4, t5 = st.tabs(["About", "MWPL Client Positions",
-                                  "Participant OI (1M)", "Insider Trading (PIT)",
-                                  "FPI Sector Flows", "Economic Calendar"])
+names = (["About", "MWPL Client Positions", "Participant OI (1M)"] +
+         (["Insider Trading (PIT)"] if SHOW_PIT else []) + ["FPI Sector Flows"] +
+         (["Economic Calendar"] if SHOW_CAL else []))
+tabs = dict(zip(names, st.tabs(names)))
+t0, t1, t2, t4 = (tabs[n] for n in ["About", "MWPL Client Positions",
+                                    "Participant OI (1M)", "FPI Sector Flows"])
+t3, t5 = tabs.get("Insider Trading (PIT)"), tabs.get("Economic Calendar")
 
 with t0:
     st.markdown("""
@@ -542,105 +547,106 @@ with t2:
         st.download_button("CSV", xl(oi, "Participant OI"),
                            f"participant_oi_{dt.date.today():%d%m%Y}.csv", "text/csv", key="dl_oi")
 
-with t3:
-    today = dt.date.today()
-    c1, c2, c3 = st.columns([2, 2, 2], vertical_alignment="bottom")
-    rng = c1.selectbox("Range", ["1D", "1W", "1M", "Custom"], key="pit_rng")
-    seg = c2.selectbox("Segment", ["equities", "sme", "debt", "invitsreits"], key="pit_seg")
-    if rng == "Custom":
-        d1, d2 = c3.columns(2)
-        from_d = d1.date_input("From", today - dt.timedelta(days=7), key="pit_from")
-        to_d = d2.date_input("To", today, key="pit_to")
-    else:
-        back = {"1D": 0, "1W": 7, "1M": 30}[rng]
-        from_d, to_d = today - dt.timedelta(days=back), today
-        c3.caption(f"{from_d:%d %b} \u2192 {to_d:%d %b %Y}")
+if t3:
+    with t3:
+        today = dt.date.today()
+        c1, c2, c3 = st.columns([2, 2, 2], vertical_alignment="bottom")
+        rng = c1.selectbox("Range", ["1D", "1W", "1M", "Custom"], key="pit_rng")
+        seg = c2.selectbox("Segment", ["equities", "sme", "debt", "invitsreits"], key="pit_seg")
+        if rng == "Custom":
+            d1, d2 = c3.columns(2)
+            from_d = d1.date_input("From", today - dt.timedelta(days=7), key="pit_from")
+            to_d = d2.date_input("To", today, key="pit_to")
+        else:
+            back = {"1D": 0, "1W": 7, "1M": 30}[rng]
+            from_d, to_d = today - dt.timedelta(days=back), today
+            c3.caption(f"{from_d:%d %b} \u2192 {to_d:%d %b %Y}")
 
-    with st.spinner("Fetching filings from NSE..."):
-        inf_df, pit_df, failed = load_pit(from_d, to_d, seg)
+        with st.spinner("Fetching filings from NSE..."):
+            inf_df, pit_df, failed = load_pit(from_d, to_d, seg)
 
-    if inf_df is None:
-        st.error("NSE API unreachable. Hit Refresh and try again.")
-    elif inf_df.empty:
-        st.warning("No filings in that range.")
-    else:
-        m1, m2, m3, m4 = st.columns([1, 1, 1, 2], vertical_alignment="bottom")
-        m1.metric("Filings", len(inf_df))
-        m2.metric("Disclosure rows", len(pit_df))
-        m3.metric("Failed", len(failed))
-        show_chart = m4.toggle("Show chart", value=True, key="pit_chart")
+        if inf_df is None:
+            st.error("NSE API unreachable. Hit Refresh and try again.")
+        elif inf_df.empty:
+            st.warning("No filings in that range.")
+        else:
+            m1, m2, m3, m4 = st.columns([1, 1, 1, 2], vertical_alignment="bottom")
+            m1.metric("Filings", len(inf_df))
+            m2.metric("Disclosure rows", len(pit_df))
+            m3.metric("Failed", len(failed))
+            show_chart = m4.toggle("Show chart", value=True, key="pit_chart")
 
-        buy = pit_df["Securities acquired / disposed - Transaction type"].astype(str)
-        val = pd.to_numeric(
-            pit_df["Securities acquired / disposed - Value of security (in Rs.)"],
-            errors="coerce").fillna(0)
-        agg = (pd.DataFrame({"Symbol": pit_df["Symbol"], "Side": buy, "Value": val})
-               .query("Side in ['Buy', 'Sell']")
-               .groupby(["Symbol", "Side"], as_index=False)["Value"].sum())
-        if show_chart and not agg.empty:
-            st.subheader("Top 20 by disclosed value")
-            top = (agg.groupby("Symbol")["Value"].sum().nlargest(20).index)
-            st.altair_chart(
-                alt.Chart(agg[agg["Symbol"].isin(top)]).mark_bar().encode(
-                    y=alt.Y("Symbol:N", sort="-x", title=None),
-                    x=alt.X("Value:Q", title="Value (Rs.)"),
-                    color=alt.Color("Side:N", scale=alt.Scale(
-                        domain=["Buy", "Sell"], range=["#26a65b", "#e05260"])),
-                    tooltip=["Symbol", "Side", "Value"],
-                ).properties(height=480), use_container_width=True)
+            buy = pit_df["Securities acquired / disposed - Transaction type"].astype(str)
+            val = pd.to_numeric(
+                pit_df["Securities acquired / disposed - Value of security (in Rs.)"],
+                errors="coerce").fillna(0)
+            agg = (pd.DataFrame({"Symbol": pit_df["Symbol"], "Side": buy, "Value": val})
+                   .query("Side in ['Buy', 'Sell']")
+                   .groupby(["Symbol", "Side"], as_index=False)["Value"].sum())
+            if show_chart and not agg.empty:
+                st.subheader("Top 20 by disclosed value")
+                top = (agg.groupby("Symbol")["Value"].sum().nlargest(20).index)
+                st.altair_chart(
+                    alt.Chart(agg[agg["Symbol"].isin(top)]).mark_bar().encode(
+                        y=alt.Y("Symbol:N", sort="-x", title=None),
+                        x=alt.X("Value:Q", title="Value (Rs.)"),
+                        color=alt.Color("Side:N", scale=alt.Scale(
+                            domain=["Buy", "Sell"], range=["#26a65b", "#e05260"])),
+                        tooltip=["Symbol", "Side", "Value"],
+                    ).properties(height=480), use_container_width=True)
 
-        d1, d2 = st.columns([1, 6])
-        d1.download_button("Excel", pit_xlsx(inf_df, pit_df, failed),
-                           f"PIT_{seg}_{from_d:%d%m%Y}_{to_d:%d%m%Y}.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           key="dl_pit_x")
-        d2.download_button("CSV", xl(pit_df, "PIT"),
-                           f"PIT_{seg}_{from_d:%d%m%Y}_{to_d:%d%m%Y}.csv",
-                           "text/csv", key="dl_pit_c")
+            d1, d2 = st.columns([1, 6])
+            d1.download_button("Excel", pit_xlsx(inf_df, pit_df, failed),
+                               f"PIT_{seg}_{from_d:%d%m%Y}_{to_d:%d%m%Y}.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="dl_pit_x")
+            d2.download_button("CSV", xl(pit_df, "PIT"),
+                               f"PIT_{seg}_{from_d:%d%m%Y}_{to_d:%d%m%Y}.csv",
+                               "text/csv", key="dl_pit_c")
 
-        s1, s2 = st.tabs(["By company", "All rows"])
+            s1, s2 = st.tabs(["By company", "All rows"])
 
-        with s1:
-            work = pit_df.copy()
-            work["_val"] = val
-            work["_side"] = buy
-            summary = (work.groupby(["Symbol", "Company"], as_index=False)
-                       .agg(Rows=("Symbol", "size"),
-                            Filings=("Broadcast", "nunique"),
-                            Buy=("_val", lambda x: x[work.loc[x.index, "_side"] == "Buy"].sum()),
-                            Sell=("_val", lambda x: x[work.loc[x.index, "_side"] == "Sell"].sum())))
-            summary["Net"] = summary["Buy"] - summary["Sell"]
-            summary = summary.sort_values("Rows", ascending=False).reset_index(drop=True)
+            with s1:
+                work = pit_df.copy()
+                work["_val"] = val
+                work["_side"] = buy
+                summary = (work.groupby(["Symbol", "Company"], as_index=False)
+                           .agg(Rows=("Symbol", "size"),
+                                Filings=("Broadcast", "nunique"),
+                                Buy=("_val", lambda x: x[work.loc[x.index, "_side"] == "Buy"].sum()),
+                                Sell=("_val", lambda x: x[work.loc[x.index, "_side"] == "Sell"].sum())))
+                summary["Net"] = summary["Buy"] - summary["Sell"]
+                summary = summary.sort_values("Rows", ascending=False).reset_index(drop=True)
 
-            st.caption(f"{len(summary)} companies \u00b7 click a row to open it below")
-            picked = None
-            try:
-                sel = st.dataframe(summary, use_container_width=True, hide_index=True,
-                                   on_select="rerun", selection_mode="single-row",
-                                   key="pit_pick", height=min(600, 35 * len(summary) + 40))
-                if sel.selection.rows:
-                    picked = summary.iloc[sel.selection.rows[0]]
-            except TypeError:
-                st.dataframe(summary, use_container_width=True, hide_index=True)
-                sym = st.selectbox("Open company", ["-"] + list(summary["Symbol"]),
-                                   key="pit_pick_fb")
-                if sym != "-":
-                    picked = summary[summary["Symbol"] == sym].iloc[0]
+                st.caption(f"{len(summary)} companies \u00b7 click a row to open it below")
+                picked = None
+                try:
+                    sel = st.dataframe(summary, use_container_width=True, hide_index=True,
+                                       on_select="rerun", selection_mode="single-row",
+                                       key="pit_pick", height=min(600, 35 * len(summary) + 40))
+                    if sel.selection.rows:
+                        picked = summary.iloc[sel.selection.rows[0]]
+                except TypeError:
+                    st.dataframe(summary, use_container_width=True, hide_index=True)
+                    sym = st.selectbox("Open company", ["-"] + list(summary["Symbol"]),
+                                       key="pit_pick_fb")
+                    if sym != "-":
+                        picked = summary[summary["Symbol"] == sym].iloc[0]
 
-            if picked is not None:
-                st.divider()
-                st.subheader(f"{picked.Symbol} \u2014 {picked.Company}")
-                st.caption(f"{picked.Rows} disclosure rows across {picked.Filings} filing"
-                           f"{'s' if picked.Filings != 1 else ''} \u00b7 "
-                           f"buy \u20b9{picked.Buy:,.0f} \u00b7 sell \u20b9{picked.Sell:,.0f} \u00b7 "
-                           f"net \u20b9{picked.Net:,.0f}")
-                sub = view_cols(pit_df[pit_df["Symbol"] == picked.Symbol])
-                st.dataframe(sub, use_container_width=True, hide_index=True,
-                             height=min(1200, 35 * len(sub) + 45))
+                if picked is not None:
+                    st.divider()
+                    st.subheader(f"{picked.Symbol} \u2014 {picked.Company}")
+                    st.caption(f"{picked.Rows} disclosure rows across {picked.Filings} filing"
+                               f"{'s' if picked.Filings != 1 else ''} \u00b7 "
+                               f"buy \u20b9{picked.Buy:,.0f} \u00b7 sell \u20b9{picked.Sell:,.0f} \u00b7 "
+                               f"net \u20b9{picked.Net:,.0f}")
+                    sub = view_cols(pit_df[pit_df["Symbol"] == picked.Symbol])
+                    st.dataframe(sub, use_container_width=True, hide_index=True,
+                                 height=min(1200, 35 * len(sub) + 45))
 
-        flat = view_cols(pit_df, keep_symbol=True)
-        s2.dataframe(flat, use_container_width=True, hide_index=True,
-                     height=min(1200, 35 * len(flat) + 40))
+            flat = view_cols(pit_df, keep_symbol=True)
+            s2.dataframe(flat, use_container_width=True, hide_index=True,
+                         height=min(1200, 35 * len(flat) + 40))
 
 with t4:
     opts = fpi_options()
@@ -721,12 +727,13 @@ with t4:
                            f"fpi_{sector[:12]}_{dt.date.today():%d%m%Y}.csv",
                            "text/csv", key="dl_fpi")
 
-with t5:
-    high_df, india_df = load_calendar()
-    cal_df = cal_combined(high_df, india_df)
-    st.download_button("Excel", cal_xlsx(high_df, india_df),
-                       f"economic_calendar_{dt.date.today():%d%m%Y}.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                       key="dl_cal_x")
-    st.subheader(f"Economic Calendar \u2014 3-star (Major countries + India) & 2-star India  ({len(cal_df)})")
-    st.dataframe(cal_df, hide_index=True, use_container_width=True)
+if t5:
+    with t5:
+        high_df, india_df = load_calendar()
+        cal_df = cal_combined(high_df, india_df)
+        st.download_button("Excel", cal_xlsx(high_df, india_df),
+                           f"economic_calendar_{dt.date.today():%d%m%Y}.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           key="dl_cal_x")
+        st.subheader(f"Economic Calendar \u2014 3-star (Major countries + India) & 2-star India  ({len(cal_df)})")
+        st.dataframe(cal_df, hide_index=True, use_container_width=True)
