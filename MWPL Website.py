@@ -256,6 +256,8 @@ def _cal_parse(html):
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table", id="calendar") or soup.find("table")
     out = []
+    if table is None:
+        return out
     for tr in table.find_all("tr"):
         if not tr.get("data-event"):
             continue
@@ -302,11 +304,18 @@ def _cal_sort(rows):
 @st.cache_data(ttl=600, show_spinner=False)
 def load_calendar():
     s = cloudscraper.create_scraper()
-    world = _cal_parse(s.get("https://tradingeconomics.com/calendar", headers=CAL_HEAD).text)
-    india = _cal_parse(s.get("https://tradingeconomics.com/india/calendar", headers=CAL_HEAD).text)
+
+    def grab(url):
+        try:
+            return _cal_parse(s.get(url, headers=CAL_HEAD, timeout=30).text)
+        except Exception:
+            return []
+
+    world = grab("https://tradingeconomics.com/calendar")
+    india = grab("https://tradingeconomics.com/india/calendar")
     high = _cal_sort([r for r in world + india if r["lvl"] == "3"])
     med = _cal_sort([r for r in india if r["lvl"] == "2"])
-    return pd.DataFrame(high)[CAL_COLS], pd.DataFrame(med)[CAL_COLS]
+    return pd.DataFrame(high, columns=CAL_COLS), pd.DataFrame(med, columns=CAL_COLS)
 
 
 def _cal_dt(row):
@@ -732,6 +741,9 @@ with t4:
 if t5:
     with t5:
         high_df, india_df = load_calendar()
+        if high_df.empty and india_df.empty:
+            st.error("Trading Economics unreachable or blocked. Hit Refresh and try again.")
+            st.stop()
         cal_df = cal_combined(high_df, india_df)
         st.download_button("Excel", cal_xlsx(high_df, india_df),
                            f"economic_calendar_{dt.date.today():%d%m%Y}.xlsx",
