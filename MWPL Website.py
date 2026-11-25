@@ -427,7 +427,9 @@ with a2:
 
 b1, b2 = st.columns([5, 1], vertical_alignment="center")
 with b1:
-    st.caption("MWPL client positions · participant-wise open interest · insider trading · FPI flows · economic calendar · live")
+    st.caption(" · ".join(["MWPL client positions", "participant-wise open interest"] +
+                          (["insider trading"] if SHOW_PIT else []) + ["FPI flows"] +
+                          (["economic calendar"] if SHOW_CAL else []) + ["live"]))
     st.caption("By: Sundar Kewat (Technical Analyst) & Kushagra Singh (Data Analyst)")
 with b2:
     if st.button("Refresh"):
@@ -465,25 +467,25 @@ concentration in one or two hands.
 NSE's "Participant wise Open Interest" file for the last ~21 trading days.
 Long % and Short % are each participant's share of index futures open interest,
 computed as long / (long + short). Dashed lines are the average across the window.
-
-**Insider Trading (PIT)**  
+""" + ("""
+**Insider Trading (PIT)**
 Reg 7(2) and 7(3) disclosures under SEBI (Prohibition of Insider Trading) Regulations, 2015.
 Each filing is an iXBRL document parsed into two tables: the company's general information
 and the PIT disclosure rows (person, category, holdings before and after, quantity, value,
 transaction type, mode). Buy/Sell and contract columns are populated only for derivatives.
-
-**FPI Sector Flows**  
+""" if SHOW_PIT else "") + """
+**FPI Sector Flows**
 NSDL fortnightly sector-wise FII/FPI net investment (INR Cr). Bar chart shows one
 fortnight across all sectors; line chart tracks a single sector across a chosen range.
-
-**Economic Calendar**  
+""" + ("""
+**Economic Calendar**
 Trading Economics macro calendar. High-importance (3-star) events across all countries
 plus India, and medium-importance (2-star) events for India only.
-
-**Notes**  
+""" if SHOW_CAL else "") + f"""
+**Notes**
 Position date runs one trading day behind the publish date. Missing days are holidays.
 Data refreshes every 5 minutes, or immediately via Refresh. Nothing is stored locally.
-Source: NSE India / NSDL / Trading Economics. Internal research use only, not investment advice.
+Source: NSE India / NSDL{' / Trading Economics' if SHOW_CAL else ''}. Internal research use only, not investment advice.
 """)
 
 with t1:
