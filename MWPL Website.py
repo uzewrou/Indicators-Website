@@ -14,7 +14,7 @@ FPI_URL = "https://www.fpi.nsdl.co.in/web/Reports/FPI_Fortnightly_Selection.aspx
 FPI_BASE = "https://www.fpi.nsdl.co.in/web/"
 PARTS = ["FII", "Pro", "Client", "DII"]
 NAVY, GREEN = "#1F3864", "#2E9E5B"
-SHOW_PIT, SHOW_CAL = False, False  # flip to True to re-enable
+SHOW_PIT, SHOW_CAL = True, True  # flip to True to re-enable
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Ashika_logo-removebg-preview.png")
 
 GROUPS = [
